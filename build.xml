@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<project name="iqc" default="dist" basedir=".">
+  <property name="build" value="build"/>
+  <property name="dist" value="dist"/>
+  <property name="lib" value="lib"/>
+  <property name="web" value="web/WEB-INF"/>
+  <property name="classes" value="${web}/classes"/>
+  <property name="weblib" value="${web}/lib"/>
+  <property name="src" value="src"/>
+  <property name="name" value="iqc"/>
+  <property name="jar" value="${name}.jar"/>
+
+  <path id="compile.classpath">
+    <fileset dir="${lib}">
+      <include name="**/*.jar"/>
+    </fileset>
+    <pathelement location="build"/>
+  </path>
+
+  <target name="init">
+    <tstamp>
+       <format property="touch.time"
+                pattern="MM/dd/yyyy 'at' HH:mm:ss z"/>
+    </tstamp>
+
+    <!-- Create the build directory structure used by compile -->
+    <mkdir dir="${build}"/>
+    <mkdir dir="${dist}"/>
+  </target>
+
+  <target name="compile" depends="init">
+    <javac destdir="${build}"
+           deprecation="on"
+           debug="on"
+           includeantruntime="no"
+           target="1.5"
+           source="1.5">
+      <src path="src"/>
+      <classpath refid="compile.classpath"/>
+    </javac>
+  </target>
+
+  <target name="dist" depends="compile">
+    <jar jarfile="${dist}/${jar}"
+         basedir="."
+         includes="**.html,${build}/**">
+       <manifest>
+          <attribute name="Built-By" value="${user.name}"/>
+       </manifest>
+    </jar>
+  </target>
+
+  <target name="clean">
+     <delete includeEmptyDirs="true"> 
+        <fileset dir="${classes}" includes="**/*"/>
+     </delete>
+     <delete includeEmptyDirs="true"> 
+        <fileset dir="${build}" includes="**/*"/>
+     </delete>
+  </target>
+
+  <target name="test" depends="compile">
+     <echo message="=== Simple test "/>
+     <java classname="tripod.iqc.core.TxtReader" maxmemory="1024m"
+            classpathref="compile.classpath" fork="true">
+        <arg value="data/SP118414_20130816_CYP34A_Stab_Data_Final.txt"/>
+     </java>
+  </target>
+
+</project>
