@@ -6,11 +6,62 @@ import java.util.logging.Level;
 
 import org.apache.commons.math.stat.regression.SimpleRegression;
 
-public class LeastSquaresEstimator implements Estimator {
+public class LeastSquaresEstimator 
+    implements Estimator, Comparator<Estimator.Result> {
+
     private static final Logger logger = Logger.getLogger
         (LeastSquaresEstimator.class.getName());
 
-    private double bestMSE;
+    static class LinearFitModel implements FitModel {
+        SimpleRegression reg;
+        Variable[] params = new Variable[2];
+        Variable[] metrics = new Variable[4];
+
+        LinearFitModel (SimpleRegression reg) {
+            this.reg = reg;
+            params[0] = new Variable ("Slope", reg.getSlope());
+            params[1] = new Variable ("Intercept", reg.getIntercept());
+            metrics[0] = new Variable ("MSE", reg.getMeanSquareError());
+            metrics[1] = new Variable ("R", reg.getR());
+            metrics[2] = new Variable ("SlopeStdErr", reg.getSlopeStdErr());
+            metrics[3] = new Variable ("InterceptStdErr", 
+                                       reg.getInterceptStdErr());
+        }
+
+        public Variable getVariable (String name) {
+            for (Variable v : params) {
+                if (name.equals(v.name))
+                    return v;
+            }
+            for (Variable v : metrics) {
+                if (name.equals(v.name))
+                    return v;
+            }
+            return null;
+        }
+
+        public double getMSE () { return reg.getMeanSquareError(); }
+        public double getR () { return reg.getR(); }
+
+        public Object getModelObj () { return reg; }
+        public int getNumParams () { return params.length; }
+        public Variable getParam (int n) { return params[n]; }
+        public Variable[] parameters () { return params; }
+
+        public int getNumMetrics () { return metrics.length; }
+        public Variable getMetric (int n) { return metrics[n]; }
+        public Variable[] metrics () { return metrics; }
+
+        public String toString () {
+            return "LinearFitModel{slope="
+                +String.format("%1$.5f", reg.getSlope())
+                +",intercept="+String.format("%1$.5f", reg.getIntercept())
+                +",MSE="+String.format("%1$.5f", reg.getMeanSquareError())
+                +",R^2="+String.format("%1$.3f", reg.getR())
+                +"}";
+        }
+    }
+
     // maximum number of outliers to tolerate
     private int maxOutliers = 2; 
     // maximum number of data points to allow 
@@ -37,12 +88,13 @@ public class LeastSquaresEstimator implements Estimator {
      * where L(*) is the least squares fit based on the number of 
      * measures.
      */
-    public FitModel estimate (Sample sample) {
+    public List<Result> estimate (final Sample sample) {
         if (maxSize > 0 && sample.size() > maxSize) {
             throw new IllegalArgumentException
                 ("Sample contains too many measures!");
         }
 
+        final List<Result> results = new ArrayList<Result>();
         final Measure[] measures;
         // ignore blank measures
         { List<Measure> M = new ArrayList<Measure>();
@@ -54,14 +106,13 @@ public class LeastSquaresEstimator implements Estimator {
             measures = M.toArray(new Measure[0]);
         }
 
-        final int m = Math.max(0, measures.length - maxOutliers);
-        final List<SimpleRegression> estimators = 
-            new ArrayList<SimpleRegression>();
-
-        System.out.println(">>> sample "+sample.getName());
-        for (int i = 0; i < measures.length; ++i) {
-            System.out.println(i+": "+measures[i]);
+        if (measures.length < 3) {
+            throw new IllegalArgumentException
+                ("Too few measures ("+measures.length
+                 +") for a meaningful fit!");
         }
+
+        final int m = Math.max(0, measures.length - maxOutliers);
 
         // enumerate 2^N combinations and generate a linear regression
         //  for those configurations that has at least m measures
@@ -74,24 +125,37 @@ public class LeastSquaresEstimator implements Estimator {
                         if (bv[i] > 0)
                             ++c;
                     if (c >= m) {
-                        SimpleRegression est = estimate (bv, measures);
-                        estimators.add(est);
+                        results.add(estimate (sample, bv, measures));
                     }
                 }
             });
 
         // now run
         gc.generate();
+        // sort results
+        Collections.sort(results, this);
 
-        logger.info(estimators.size()+" estimators!");
-        
-
-        return null;
+        //logger.info(results.size()+" results!");
+        return results;
     }
 
-    protected SimpleRegression estimate (int[] selector, Measure[] measures) {
+    public int compare (Result r1, Result r2) {
+        LinearFitModel m1 = (LinearFitModel)r1.getModel();
+        LinearFitModel m2 = (LinearFitModel)r2.getModel();
+
+        double d = m1.getMSE() - m2.getMSE();
+        if (d < 0) return -1;
+        if (d > 0) return 1;
+
+        d = m2.getR() - m1.getR();
+        if (d < 0) return -1;
+        if (d > 0) return 1;
+        return 0;
+    }
+
+    protected Result estimate (Sample sample, int[] selector, 
+                               Measure[] measures) {
         SimpleRegression reg = new SimpleRegression ();
-        System.out.print("# config");
         for (int i = 0; i < selector.length; ++i) {
             if (selector[i] > 0) {
                 Double t = measures[i].getTime();
@@ -100,16 +164,9 @@ public class LeastSquaresEstimator implements Estimator {
                     reg.addData(t, Math.log(r)); // natural log
                 }
             }
-            System.out.print(" "+selector[i]);
         }
 
-        System.out.println(" => slope="+reg.getSlope()+" intercept="
-                           +reg.getIntercept()+" R="+reg.getR()+" MSE="
-                           +reg.getMeanSquareError());
-
-        return reg;
+        return new Result (sample, measures, 
+                           selector, new LinearFitModel (reg));
     }
-
-
-    public double getMSE () { return bestMSE; }
 }

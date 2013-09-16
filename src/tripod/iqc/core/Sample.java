@@ -59,4 +59,6 @@ public class Sample implements Serializable {
     public List<Measure> getMeasures () { 
         return Collections.unmodifiableList(measures); 
     }
+
+    public String toString () { return name; }
 }

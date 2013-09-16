@@ -175,9 +175,13 @@ public class TxtReader implements Reader {
         }
 
         Estimator estimator = new LeastSquaresEstimator ();
+        int c = 0;
         for (Sample sampl; (sampl = reader.read()) != null; ) {
-            estimator.estimate(sampl);
-            break;
+            List<Estimator.Result> results = estimator.estimate(sampl);
+            for (Estimator.Result res : results) {
+                System.out.println(res);
+            }
+            if (++c > 5) break;
         }
     }
 }

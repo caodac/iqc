@@ -1,13 +1,11 @@
 package tripod.iqc.core;
 
-import java.util.Iterator;
-
 public interface FitModel {
-    class Parameter {
+    class Variable {
         String name;
         double value;
 
-        Parameter (String name, double value) {
+        Variable (String name, double value) {
             this.name = name;
             this.value = value;
         }
@@ -15,7 +13,20 @@ public interface FitModel {
         public double getValue () { return value; }
     }
 
+    Object getModelObj (); // raw underlying model object
+    Variable getVariable (String name);
+
+    /**
+     * model parameters
+     */
     int getNumParams (); // number of parameters for this model
-    Parameter getParam (int n); // get the nth parameter
-    Iterator<Parameter> parameters ();
+    Variable getParam (int n); // get the nth parameter
+    Variable[] parameters ();
+
+    /**
+     * model evaluation metrics
+     */
+    int getNumMetrics (); // number of metrics
+    Variable getMetric (int n); // get the nth metric
+    Variable[] metrics ();
 }
