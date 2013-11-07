@@ -9,8 +9,7 @@ public interface Estimator {
         int[] config; // configuration
         FitModel model;
 
-        Integer rank;
-        String comments;
+        double clint; // intrinsic clearance
 
         Result (Sample sample, Measure[] measures, 
                 int[] config, FitModel model) {
@@ -25,12 +24,8 @@ public interface Estimator {
         public int[] getConfig () { return config; }
         public FitModel getModel () { return model; }
 
-        public Integer getRank () { return rank; }
-        public void setRank (int rank) { this.rank = rank; }
-        public String getComments () { return comments; }
-        public void setComments (String comments) { 
-            this.comments = comments; 
-        }
+        public double getCLint () { return clint; }
+        public void setCLint (double clint) { this.clint = clint; }
 
         public String toString () {
             StringBuilder sb = new StringBuilder ("Result{\n");

@@ -63,7 +63,7 @@ public class LeastSquaresEstimator
     }
 
     // maximum number of outliers to tolerate
-    private int maxOutliers = 2; 
+    private int maxOutliers = 3; 
     // maximum number of data points to allow 
     private int maxSize = 10;
 
@@ -89,13 +89,16 @@ public class LeastSquaresEstimator
      * measures.
      */
     public List<Result> estimate (final Sample sample) {
+        /*
         if (maxSize > 0 && sample.size() > maxSize) {
             throw new IllegalArgumentException
                 ("Sample contains too many measures!");
         }
+        */
 
         final List<Result> results = new ArrayList<Result>();
-        final Measure[] measures;
+        final Measure[] measures = sample.getMedianMeasures();
+        /*
         // ignore blank measures
         { List<Measure> M = new ArrayList<Measure>();
             for (Measure m : sample.getMeasures()) {
@@ -105,10 +108,12 @@ public class LeastSquaresEstimator
             }
             measures = M.toArray(new Measure[0]);
         }
+        */
 
         if (measures.length < 3) {
             throw new IllegalArgumentException
-                ("Too few measures ("+measures.length
+                ("Sample "+sample.getName()
+                 +" contains too few measures ("+measures.length
                  +") for a meaningful fit!");
         }
 
@@ -116,7 +121,11 @@ public class LeastSquaresEstimator
 
         // enumerate 2^N combinations and generate a linear regression
         //  for those configurations that has at least m measures
-        GrayCode gc = GrayCode.createBinaryGrayCode(measures.length);
+        int size = measures.length;
+        if (maxSize > 0)
+            size = Math.min(size, maxSize);
+
+        GrayCode gc = GrayCode.createBinaryGrayCode(size);
         gc.addObserver(new Observer () {
                 public void update (Observable o, Object arg) {
                     int[] bv = (int[])arg;
@@ -133,7 +142,7 @@ public class LeastSquaresEstimator
         // now run
         gc.generate();
         // sort results
-        Collections.sort(results, this);
+        //Collections.sort(results, this);
 
         //logger.info(results.size()+" results!");
         return results;

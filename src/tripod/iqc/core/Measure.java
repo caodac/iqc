@@ -19,8 +19,12 @@ public class Measure implements Serializable {
     private Double isArea;
     private Double response;
     private boolean blank; // is this a blank measure?
+    private int replicate; // replicate #
 
     public Measure () {}
+    public Measure (int replicate) {
+        this.replicate = replicate;
+    }
     public Measure (String name) { this.name = name; }
 
     public Measure setName (String name) {
@@ -59,7 +63,6 @@ public class Measure implements Serializable {
     public Double getTime () { return time; }
     public TimeUnit getTimeUnit () { return timeUnit; }
 
-
     public Measure setRt (Double rt) { 
         this.rt = rt;
         return this;
@@ -84,11 +87,17 @@ public class Measure implements Serializable {
     }
     public Double getResponse () { return response; }
 
+    public Measure setReplicate (int replicate) {
+        this.replicate = replicate;
+        return this;
+    }
+    public int getReplicate () { return replicate; }
+
     public String toString () {
         return getClass().getName()+"{name="+getName()+",comments="
             +getComments()+",flag="+getFlag()+",blank="+getBlank()
             +",time="+getTime()+" "+getTimeUnit()+",rt="+getRt()
             +",area="+getArea()+",isArea="+getIsArea()+",response="
-            +getResponse()+"}";
+            +getResponse()+",replicate="+replicate+"}";
     }
 }

@@ -2,7 +2,9 @@
 <project name="iqc" default="dist" basedir=".">
   <property name="build" value="build"/>
   <property name="dist" value="dist"/>
+  <property name="deploy" value="deploy"/>
   <property name="lib" value="lib"/>
+  <property name="data" value="data"/>
   <property name="web" value="web/WEB-INF"/>
   <property name="classes" value="${web}/classes"/>
   <property name="weblib" value="${web}/lib"/>
@@ -26,6 +28,7 @@
     <!-- Create the build directory structure used by compile -->
     <mkdir dir="${build}"/>
     <mkdir dir="${dist}"/>
+    <mkdir dir="${deploy}"/>
   </target>
 
   <target name="compile" depends="init">
@@ -41,13 +44,33 @@
   </target>
 
   <target name="dist" depends="compile">
+    <zip destfile="${build}/${data}.zip" 
+         basedir="${data}" includes="SP118414*.txt,samples.sdf"/>
     <jar jarfile="${dist}/${jar}"
-         basedir="."
-         includes="**.html,${build}/**">
+         basedir="${build}"
+         includes="**">
        <manifest>
           <attribute name="Built-By" value="${user.name}"/>
+          <attribute name="Main-Class" value="tripod.iqc.validator.IQCValidator"/>
        </manifest>
     </jar>
+  </target>
+
+  <target name="signlibs">
+     <signjar alias="ncgc" keystore="../tripod/etc/ncgc-keystore.bin"
+               storepass="nihncgc">
+            <fileset dir="signedlib" includes="jcommon-1.0.17.jar,jfreechart-1.0.14.jar"/>
+     </signjar>
+  </target>
+
+  <target name="deploy" depends="dist">
+     <signjar alias="ncgc" keystore="../tripod/etc/ncgc-keystore.bin"
+                 storepass="nihncgc">
+        <fileset dir="${dist}" includes="${jar}"/>
+     </signjar>
+     <copy todir="${deploy}">
+        <fileset dir="${dist}" includes="${jar}"/>
+     </copy>
   </target>
 
   <target name="clean">
