@@ -11,8 +11,11 @@ import java.text.DecimalFormat;
 
 import javax.swing.*;
 import javax.swing.table.*;
+import javax.swing.tree.*;
 import javax.swing.event.ListSelectionListener;
 import javax.swing.event.ListSelectionEvent;
+import javax.swing.event.TreeSelectionEvent;
+import javax.swing.event.TreeSelectionListener;
 import java.awt.Color;
 import java.awt.event.*;
 import java.awt.BorderLayout;
@@ -38,7 +41,7 @@ import tripod.iqc.core.*;
 
 
 public class IQCValidator extends JFrame 
-    implements ActionListener, ListSelectionListener {
+    implements ActionListener, ListSelectionListener, TreeSelectionListener {
     static final Logger logger = 
         Logger.getLogger(IQCValidator.class.getName());
 
@@ -79,11 +82,12 @@ public class IQCValidator extends JFrame
                 dataset = new DefaultXYDataset ();
                 ratioDS = new DefaultXYDataset ();
 
-                for (int k = 0; k < sample.getReplicateCount(); ++k) {
-
+                int[] repls = sample.getReplicates();
+                for (int k = 0; k < repls.length; ++k) {
                     List<Measure> measures = new ArrayList<Measure>();
                     Double r0 = null;
-                    for (Measure m : sample.getMeasures(k)) {
+
+                    for (Measure m : sample.getMeasures(repls[k])) {
                         Double r = m.getResponse();
                         Double t = m.getTime();
                         if (m.getBlank() || r == null || t == null) {
@@ -113,9 +117,14 @@ public class IQCValidator extends JFrame
                                 ratio[1][i] = t; // x
                             }
                         }
-                        dataset.addSeries(sample.getName()+"-"+k, data);
-                        ratioDS.addSeries(sample.getName()+"-"+k, 
-                                          ratio != null ? ratio : new double[2][0]);
+
+                        String series = sample.getName();
+                        if (repls.length > 1) {
+                            series += "-"+repls[k];
+                        }
+                        dataset.addSeries(series, data);
+                        ratioDS.addSeries(series, ratio != null 
+                                          ? ratio : new double[2][0]);
                     }
                 }
             }
@@ -127,9 +136,10 @@ public class IQCValidator extends JFrame
         }
     }
 
-    class LoadFileWorker extends SwingWorker<Throwable, Sample> {
+    class LoadFileWorker extends SwingWorker<Throwable, Void> {
         File file;
-        DefaultListModel model = new DefaultListModel ();
+        //DefaultListModel model = new DefaultListModel ();
+        DefaultMutableTreeNode root;
         
         LoadFileWorker (File file) {
             this.file = file;
@@ -138,7 +148,8 @@ public class IQCValidator extends JFrame
         @Override
         protected Throwable doInBackground () {
             try {
-                loadSamples (model, false, new FileInputStream (file));
+                //loadSamples (model, false, new FileInputStream (file));
+                root = loadSampleTree (false, new FileInputStream (file));
             }
             catch (Exception ex) {
                 return ex;
@@ -157,11 +168,44 @@ public class IQCValidator extends JFrame
                 }
                 else {
                     IQCValidator.this.setTitle(file.getName());
-                    sampleList.setModel(model);
+                    sampleTree.setModel(new DefaultTreeModel (root));
                 }
             }
             catch (Exception ex) {
             }
+        }
+    }
+
+    class SampleTreeNode extends DefaultMutableTreeNode {
+        Estimator estimator = new LeastSquaresEstimator ();
+
+        SampleTreeNode (Sample sample) {
+            // calculate fit for parent sample
+            SampleData data = new SampleData 
+                (sample, estimator.estimate(sample));
+            setUserObject (data);
+
+            int[] repls = sample.getReplicates();
+            if (repls.length > 1) {
+                for (int k = 0; k < repls.length; ++k) {
+                    List<Measure> measures = sample.getMeasures(repls[k]);
+                    if (measures.size() > 1) {
+                        // create a dummy sample contains these measures
+                        Sample s = new Sample (sample.getName()+"-"+repls[k]);
+                        for (Measure m : measures) {
+                            s.add(m);
+                        }
+                        
+                        // and child replicates
+                        //logger.info(s.getName()+" "+s.getReplicateCount());
+                        add (new SampleTreeNode (s));
+                    }
+                }
+            }
+        }
+
+        public SampleData getData () { 
+            return (SampleData) getUserObject (); 
         }
     }
 
@@ -256,11 +300,22 @@ public class IQCValidator extends JFrame
 
         public void setResults (List<Estimator.Result> results) {
             this.results = results;
-            datasets = new XYDataset[results.size()];
-            annotations = new XYAnnotation[results.size()][];
-            save = new boolean[results.size()];
-            updateCLint ();
+            if (results != null) {
+                datasets = new XYDataset[results.size()];
+                annotations = new XYAnnotation[results.size()][];
+                save = new boolean[results.size()];
+                updateCLint ();
+            }
+            else {
+                datasets = null;
+                annotations = null;
+                save = null;
+            }
             fireTableDataChanged ();
+        }
+
+        public void clear () {
+            setResults (null);
         }
 
         void updateCLint () {
@@ -388,7 +443,7 @@ public class IQCValidator extends JFrame
     }
 
     private JFileChooser chooser;
-    private JList sampleList;
+    private JTree sampleTree;
     private JTable resultTab;
     private ChartPanel chartPane1; // ln(response) vs time
     private ChartPanel chartPane2; // % response vs time
@@ -433,15 +488,17 @@ public class IQCValidator extends JFrame
     }
 
     protected JComponent createSamplePane () {
-        sampleList = new JList ();
-        sampleList.getSelectionModel().setSelectionMode
-            (ListSelectionModel.SINGLE_SELECTION);
-        sampleList.getSelectionModel().addListSelectionListener(this);
+        sampleTree = new JTree ();
+        sampleTree.setModel(new DefaultTreeModel (null));
+        sampleTree.setRootVisible(false);
+        sampleTree.getSelectionModel().setSelectionMode
+            (TreeSelectionModel.SINGLE_TREE_SELECTION);
+        sampleTree.getSelectionModel().addTreeSelectionListener(this);
 
         JSplitPane split = new JSplitPane (JSplitPane.VERTICAL_SPLIT);
         split.setDividerSize(3);
         split.setResizeWeight(.75);
-        split.setTopComponent(new JScrollPane (sampleList));
+        split.setTopComponent(new JScrollPane (sampleTree));
         split.setBottomComponent(createMolPane ());
 
         JTabbedPane tab = new JTabbedPane ();
@@ -615,10 +672,10 @@ public class IQCValidator extends JFrame
         try {
             ActionListener loadAction = new ActionListener () {
                     public void actionPerformed (ActionEvent e) {
-                        DefaultListModel model = (DefaultListModel)
-                            ((JComponent)e.getSource())
-                            .getClientProperty("samples");
-                        sampleList.setModel(model);
+                        DefaultMutableTreeNode root =
+                            (DefaultMutableTreeNode) ((JComponent)e
+                            .getSource()).getClientProperty("samples");
+                        sampleTree.setModel(new DefaultTreeModel (root));
                     }
                 };
             JMenu sub = new JMenu ("Datasets");
@@ -627,6 +684,9 @@ public class IQCValidator extends JFrame
 
             for (ZipEntry ze; (ze = zis.getNextEntry()) != null; ) {
                 String name = ze.getName();
+                boolean correction = 
+                    name.equals("SP118414_20130816_CYP34A_Stab_Data_Final.txt")
+                    || name.equals("SP118414_20130830_CYP3A4_Stability_Data.txt");
                 int pos = name.lastIndexOf('.');
                 if (pos > 0) {
                     String ext = name.substring(pos);
@@ -634,7 +694,7 @@ public class IQCValidator extends JFrame
                         item = sub.add(new JMenuItem (ze.getName()));
                         item.addActionListener(loadAction);
                         item.putClientProperty
-                            ("samples", loadSamples (true, zis));
+                            ("samples", loadSampleTree (correction, zis));
                     }
                     else if (ext.equals(".sdf")) {
                         MolImporter mi = new MolImporter (zis);
@@ -703,18 +763,47 @@ public class IQCValidator extends JFrame
             quit ();
         }
         else if (cmd.startsWith("T")) {
-            ListModel model = sampleList.getModel();
-            if (model.getSize() == 0) {
-                JOptionPane.showMessageDialog
-                    (this, "No data loaded!", "Info", 
-                     JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
+        }
+    }
 
-            for (int i = 0; i < model.getSize(); ++i) {
-                SampleData data = (SampleData)model.getElementAt(i);
-                
+    public void valueChanged (TreeSelectionEvent e) {
+        TreeSelectionModel model = (TreeSelectionModel)e.getSource();
+        TreePath path = model.getSelectionPath();
+
+        XYPlot plot = chartPane1.getChart().getXYPlot();
+        plot.clearAnnotations();
+        plot.setDataset(0, null);
+        plot.setDataset(1, null);
+
+        ResultTableModel rtm = (ResultTableModel)resultTab.getModel();
+        if (path == null) {
+            return;
+        }
+
+        SampleTreeNode node = (SampleTreeNode)path.getLastPathComponent();
+        logger.info("Selection "+node.getUserObject());
+        sampleTree.expandPath(path);
+
+        SampleData data = (SampleData)node.getData();
+        if (data != null) {
+            rtm.setResults(data.getResults());
+            Molecule mol = molDb.get(data.getName());
+            if (mol == null) {
+                // try the parent
+                SampleTreeNode parent = (SampleTreeNode)node.getParent();
+                if (parent != null) {
+                    mol = molDb.get(parent.getData().getName());
+                }
             }
+            mview.setM(0, mol);
+            plot.setDataset(0, data.getDataset());
+            
+            plot = chartPane2.getChart().getXYPlot();
+            plot.setDataset(0, data.getRatioDataset());
+        }
+        else {
+            rtm.clear();
+            chartPane2.getChart().getXYPlot().setDataset(0, null);
         }
     }
 
@@ -723,37 +812,14 @@ public class IQCValidator extends JFrame
             return;
 
         ResultTableModel rtm = (ResultTableModel)resultTab.getModel();
-        Object source = e.getSource();
-        XYPlot plot = chartPane1.getChart().getXYPlot();
-        plot.clearAnnotations();
-
-        if (source == sampleList.getSelectionModel()) {
-            plot.setDataset(0, null);
-            plot.setDataset(1, null);
-
-            SampleData data = (SampleData)sampleList.getSelectedValue();
-            if (data != null) {
-                rtm.setResults(data.getResults());
-                Molecule mol = molDb.get(data.getName());
-                mview.setM(0, mol);
-                plot.setDataset(0, data.getDataset());
-
-                plot = chartPane2.getChart().getXYPlot();
-                plot.setDataset(0, data.getRatioDataset());
-            }
-            else {
-                chartPane2.getChart().getXYPlot().setDataset(0, null);
-            }
-        }
-        else if (source == resultTab.getSelectionModel()) {
-            int row = resultTab.getSelectedRow();
-            if (row >= 0) {
-                row = resultTab.convertRowIndexToModel(row);
-                logger.info("Result "+rtm.getResult(row));
-                plot.setDataset(1, rtm.getDataset(row));
-                for (XYAnnotation a : rtm.getAnnotations(row)) {
-                    plot.addAnnotation(a, true);
-                }
+        int row = resultTab.getSelectedRow();
+        if (row >= 0) {
+            row = resultTab.convertRowIndexToModel(row);
+            logger.info("Result "+rtm.getResult(row));
+            XYPlot plot = chartPane1.getChart().getXYPlot();
+            plot.setDataset(1, rtm.getDataset(row));
+            for (XYAnnotation a : rtm.getAnnotations(row)) {
+                plot.addAnnotation(a, true);
             }
         }
     }
@@ -805,6 +871,34 @@ public class IQCValidator extends JFrame
                 model.addElement(data);
             }
         }
+    }
+
+    protected DefaultMutableTreeNode loadSampleTree 
+        (boolean correction, InputStream is) 
+        throws IOException {
+
+        TxtReader reader = new TxtReader (is);
+
+        DefaultMutableTreeNode root = new DefaultMutableTreeNode ();
+        for (Sample s; (s = reader.read()) != null; ) {
+            String name = s.getName();
+
+            if (name.equalsIgnoreCase("albendazole") 
+                || name.equalsIgnoreCase("blank"))
+                ;
+            else {
+                if (correction) {
+                    Measure m = s.get(0); // adjust T0
+                    Double r = m.getResponse();
+                    if (r != null) {
+                        m.setResponse(r*0.75);
+                    }
+                }
+                root.add(new SampleTreeNode (s));
+            }
+        }
+
+        return root;
     }
 
     protected DefaultListModel loadSamples 

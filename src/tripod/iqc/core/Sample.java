@@ -63,6 +63,14 @@ public class Sample implements Serializable {
     public int getReplicateCount () {
         return replicates.cardinality();
     }
+    public int[] getReplicates () {
+        int[] repls = new int[replicates.cardinality()];
+        for (int i = replicates.nextSetBit(0), j = 0; i >= 0; 
+             i = replicates.nextSetBit(i+1)) {
+            repls[j++] = i;
+        }
+        return repls;
+    }
 
     public Measure get (int pos) { return measures.get(pos); }
     public Iterator<Measure> measures () { 
