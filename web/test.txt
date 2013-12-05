@@ -1,0 +1,5 @@
+test    sample-1        true
+test    sample-2        false
+test    sample-3        true
+test    sample-4        true
+test    sample-5        false

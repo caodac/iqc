@@ -12,17 +12,19 @@ public class LeastSquaresEstimator
     private static final Logger logger = Logger.getLogger
         (LeastSquaresEstimator.class.getName());
 
-    static class LinearFitModel implements FitModel {
+    static public class LinearFitModel implements FitModel {
         SimpleRegression reg;
         Variable[] params = new Variable[2];
         Variable[] metrics = new Variable[4];
+        final Measure[] measures;
 
-        LinearFitModel (SimpleRegression reg) {
+        LinearFitModel (Measure[] measures, SimpleRegression reg) {
             this.reg = reg;
+            this.measures = measures;
             params[0] = new Variable ("Slope", reg.getSlope());
             params[1] = new Variable ("Intercept", reg.getIntercept());
             metrics[0] = new Variable ("MSE", reg.getMeanSquareError());
-            metrics[1] = new Variable ("R", reg.getR());
+            metrics[1] = new Variable ("R^2", reg.getR());
             metrics[2] = new Variable ("SlopeStdErr", reg.getSlopeStdErr());
             metrics[3] = new Variable ("InterceptStdErr", 
                                        reg.getInterceptStdErr());
@@ -39,6 +41,8 @@ public class LeastSquaresEstimator
             }
             return null;
         }
+
+        public Measure[] getMeasures () { return measures; }
 
         public double getMSE () { return reg.getMeanSquareError(); }
         public double getR () { return reg.getR(); }
@@ -117,7 +121,7 @@ public class LeastSquaresEstimator
                  +") for a meaningful fit!");
         }
 
-        final int m = Math.max(0, measures.length - maxOutliers);
+        final int m = Math.min(3, Math.max(0, measures.length - maxOutliers));
 
         // enumerate 2^N combinations and generate a linear regression
         //  for those configurations that has at least m measures
@@ -142,40 +146,36 @@ public class LeastSquaresEstimator
         // now run
         gc.generate();
         // sort results
-        //Collections.sort(results, this);
+        Collections.sort(results);//, this);
 
         //logger.info(results.size()+" results!");
         return results;
     }
 
     public int compare (Result r1, Result r2) {
-        LinearFitModel m1 = (LinearFitModel)r1.getModel();
-        LinearFitModel m2 = (LinearFitModel)r2.getModel();
-
-        double d = m1.getMSE() - m2.getMSE();
-        if (d < 0) return -1;
-        if (d > 0) return 1;
-
-        d = m2.getR() - m1.getR();
-        if (d < 0) return -1;
-        if (d > 0) return 1;
+        if (r2.getScore() > r1.getScore()) return 1;
+        if (r2.getScore() < r1.getScore()) return -1;
         return 0;
     }
 
     protected Result estimate (Sample sample, int[] selector, 
                                Measure[] measures) {
         SimpleRegression reg = new SimpleRegression ();
+        List<Measure> selected = new ArrayList<Measure>();
         for (int i = 0; i < selector.length; ++i) {
             if (selector[i] > 0) {
                 Double t = measures[i].getTime();
                 Double r = measures[i].getResponse();
                 if (t != null && r != null) {
+                    selected.add(measures[i]);
                     reg.addData(t, Math.log(r)); // natural log
                 }
             }
         }
 
-        return new Result (sample, measures, 
-                           selector, new LinearFitModel (reg));
+        return new Result
+            (sample, measures, selector, 
+             new LinearFitModel (selected.toArray(new Measure[0]), reg),
+             new LeastSquaresFitScore ());
     }
 }
