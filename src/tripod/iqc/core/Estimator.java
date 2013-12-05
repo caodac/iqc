@@ -3,29 +3,51 @@ package tripod.iqc.core;
 import java.util.List;
 
 public interface Estimator {
-    class Result {
+    class Result implements Comparable<Result> {
         Sample sample;
         Measure[] measures;
         int[] config; // configuration
         FitModel model;
-
+        Double score;
         double clint; // intrinsic clearance
 
         Result (Sample sample, Measure[] measures, 
-                int[] config, FitModel model) {
+                int[] config, FitModel model, FitScore scorer) {
             this.sample = sample;
             this.measures = measures;
             this.config = (int[])config.clone();
             this.model = model;
+            this.score = scorer.eval(model);
         }
 
         public Sample getSample () { return sample; }
+
+        // unique identifier associated with this result
+        public String getId () {
+            StringBuilder sb = new StringBuilder ();
+            for (int i = 0; i < config.length; ++i) {
+                if (config[i] > 0) {
+                    if (sb.length() > 0) sb.append(",");
+                    sb.append(i);
+                }
+            }
+            return sample.getName()+"["+sb+"]";
+        }
+
         public Measure[] getMeasures () { return measures; }
         public int[] getConfig () { return config; }
         public FitModel getModel () { return model; }
+        public Double getScore () { return score; }
 
         public double getCLint () { return clint; }
         public void setCLint (double clint) { this.clint = clint; }
+
+        public int compareTo (Result r) {
+            Double s = r.getScore();
+            if (s != null) return s.compareTo(this.score);
+            if (this.score == null) return 0;
+            return 1;
+        }
 
         public String toString () {
             StringBuilder sb = new StringBuilder ("Result{\n");
@@ -37,7 +59,8 @@ public interface Estimator {
                         sb.append("  ["+i+"] " +measures[i]+"\n");
                 }
             }
-            sb.append(" model: "+model);
+            sb.append(" model: "+model+"\n");
+            sb.append(" score: "+score);
             sb.append("\n}");
             return sb.toString();
         }

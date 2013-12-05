@@ -44,8 +44,13 @@
   </target>
 
   <target name="dist" depends="compile">
+<!--
     <zip destfile="${build}/${data}.zip" 
-         basedir="${data}" includes="SP118414*.txt,samples.sdf"/>
+         basedir="${data}" includes="SP*.txt,Validation_*.txt,samples.sdf"/>
+-->
+    <copy todir="${build}">
+      <fileset dir="${src}" includes="tripod/iqc/validator/resources/**"/>
+    </copy>
     <jar jarfile="${dist}/${jar}"
          basedir="${build}"
          includes="**">

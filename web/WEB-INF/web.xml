@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app version="2.5" xmlns="http://java.sun.com/xml/ns/javaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://java.sun.com/xml/ns/javaee http://java.sun.com/xml/ns/javaee/web-app_2_5.xsd">
+
+    <context-param>
+        <param-name>jdbc-iqc</param-name>
+        <param-value>jdbc:oracle:thin:iqc/ncatsiqc$12@lederman.ncats.nih.gov:1521:probedb</param-value>
+    </context-param>
+
+    <context-param>
+        <param-name>dataset-dir</param-name>
+        <param-value>/ncats/prod/ncatsweb/iqc/datasets</param-value>
+    </context-param>
+
+    <servlet>
+        <servlet-name>IQCAnnotationServlet</servlet-name>
+        <servlet-class>IQCAnnotationServlet</servlet-class>
+    </servlet>
+    <servlet>
+        <servlet-name>IQCDatasetServlet</servlet-name>
+        <servlet-class>IQCDatasetServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>IQCAnnotationServlet</servlet-name>
+        <url-pattern>/annotation/*</url-pattern>
+    </servlet-mapping>
+    <servlet-mapping>
+        <servlet-name>IQCDatasetServlet</servlet-name>
+        <url-pattern>/datasets/*</url-pattern>
+    </servlet-mapping>
+</web-app>

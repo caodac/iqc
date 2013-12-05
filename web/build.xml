@@ -1,0 +1,69 @@
+<?xml version="1.0"?>
+<project name="iqc-web" default="dist" basedir=".">
+  <property name="build" value="build"/>
+  <property name="dist" value="dist"/>
+  <property name="lib" value="lib"/>
+  <property name="web" value="WEB-INF"/>
+  <property name="classes" value="${web}/classes"/>
+  <property name="weblib" value="${web}/lib"/>
+  <property name="src" value="src"/>
+  <property name="war" value="iqc-web.war"/>
+
+  <path id="compile.classpath">
+    <fileset dir="${lib}">
+      <include name="**/*.jar"/>
+    </fileset>
+    <fileset dir="${weblib}">
+      <include name="**/*.jar"/>
+    </fileset>
+    <fileset dir="${dist}">
+      <include name="**/*.jar"/>
+    </fileset>
+    <pathelement location="${classes}"/>
+  </path>
+
+  <target name="init">
+    <tstamp>
+       <format property="touch.time"
+                pattern="MM/dd/yyyy 'at' HH:mm:ss z"/>
+    </tstamp>
+
+    <!-- Create the build directory structure used by compile -->
+    <mkdir dir="${build}"/>
+    <mkdir dir="${dist}"/>
+  </target>
+
+  <target name="compile" depends="init">
+    <javac srcdir="${src}"
+           destdir="${classes}"
+           deprecation="on"
+           debug="on"
+           includeantruntime="no"
+           target="1.5"
+           source="1.5">
+      <classpath refid="compile.classpath"/>
+    </javac>
+  </target>
+
+  <target name="dist" depends="compile">
+    <jar jarfile="${war}"
+         basedir="."
+         includes="**.html,${web}/**">
+       <manifest>
+          <attribute name="Built-By" value="${user.name}"/>
+       </manifest>
+    </jar>
+  </target>
+
+  <target name="deploy" depends="dist">
+    <copy todir="${deploy}">
+      <fileset dir="." includes="${war}"/>
+    </copy>
+  </target>
+
+  <target name="clean">
+     <delete includeEmptyDirs="true"> 
+        <fileset dir="${classes}" includes="**/*"/>
+     </delete>
+  </target>
+</project>
