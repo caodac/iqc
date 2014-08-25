@@ -24,7 +24,7 @@ public class LeastSquaresEstimator
             params[0] = new Variable ("Slope", reg.getSlope());
             params[1] = new Variable ("Intercept", reg.getIntercept());
             metrics[0] = new Variable ("MSE", reg.getMeanSquareError());
-            metrics[1] = new Variable ("R^2", reg.getR());
+            metrics[1] = new Variable ("r^2", reg.getR());
             metrics[2] = new Variable ("SlopeStdErr", reg.getSlopeStdErr());
             metrics[3] = new Variable ("InterceptStdErr", 
                                        reg.getInterceptStdErr());
@@ -145,8 +145,11 @@ public class LeastSquaresEstimator
 
         // now run
         gc.generate();
-        // sort results
-        Collections.sort(results);//, this);
+        Collections.sort(results); // sort results
+        int rank = 0;
+        for (Result r : results) {
+            r.setRank(++rank);
+        }
 
         //logger.info(results.size()+" results!");
         return results;

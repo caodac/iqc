@@ -53,8 +53,8 @@ public class IQCValidator extends JFrame
         Logger.getLogger(IQCValidator.class.getName());
 
     enum CLUnit {
-        mL_pmol_min,
-            mL_nmol_hr
+        mL_min_pmol,
+            mL_hr_nmol
             }
 
     static double DEFAULT_CYP_CONC = 29.03;
@@ -71,6 +71,12 @@ public class IQCValidator extends JFrame
         (IQCValidator.class.getResource("resources/toggle.png"));
     static final ImageIcon TOGGLE_EXPAND = new ImageIcon 
         (IQCValidator.class.getResource("resources/toggle-expand.png"));
+    static final ImageIcon STAR_FULL = new ImageIcon 
+        (IQCValidator.class.getResource("resources/star.png"));
+    static final ImageIcon STAR_EMPTY = new ImageIcon 
+        (IQCValidator.class.getResource("resources/star-empty.png"));
+    static final ImageIcon STAR_HALF = new ImageIcon 
+        (IQCValidator.class.getResource("resources/star-half.png"));
 
 
     static class SampleData {
@@ -154,7 +160,8 @@ public class IQCValidator extends JFrame
             }
 
             if (minLnRes != null && maxLnRes != null)
-                stable = Math.abs(maxLnRes - minLnRes) < .5;
+                stable = Math.abs(maxLnRes - minLnRes) < .5
+                    || maxLnRes > minLnRes;
             //logger.info(sample.getName()+": min="+minLnRes+" max="+maxLnRes+" => "+stable);
         }
 
@@ -222,15 +229,18 @@ public class IQCValidator extends JFrame
                 logger.info("Retrieving saved results for \""+dataset+"\"...");
                 BufferedReader br = new BufferedReader 
                     (new InputStreamReader (url.openStream()));
-                
-                for (String line; (line = br.readLine()) != null; ) {
+
+                int count = 0;
+                for (String line; (line = br.readLine()) != null; ++count) {
                     String[] toks = line.split("\t");
                     if (toks.length == 3) {
                         saves.put(toks[0], Integer.parseInt(toks[1]) == 1);
                     }
-                    System.out.println(line);
+                    //System.out.println(line);
                 }
                 br.close();
+
+                logger.info(dataset+": "+count+" saved results!");
             }
             catch (Exception ex) {
                 ex.printStackTrace();
@@ -279,6 +289,7 @@ public class IQCValidator extends JFrame
             }
         }
     }
+
 
     class UploadFileWorker extends SwingWorker<Throwable, Void> {
         File file;
@@ -365,8 +376,25 @@ public class IQCValidator extends JFrame
                 BufferedReader br = new BufferedReader 
                     (new InputStreamReader (url.openStream()));
                 for (String name; (name = br.readLine()) != null; ) {
+                    String[] tokens = name.split("\t");
+                    int count = 0;
+                    if (tokens.length == 2) {
+                        name = tokens[0];
+                        try {
+                            count = Integer.parseInt(tokens[1]);
+                        }
+                        catch (NumberFormatException ex) {
+                        }
+                    }
                     JMenuItem item = createMenuItem (name);
                     if (item != null) {
+                        if (count == 0)
+                            item.setIcon(STAR_EMPTY);
+                        else if (count < 10)
+                            item.setIcon(STAR_HALF);
+                        else
+                            item.setIcon(STAR_FULL);
+                    
                         items.add(item);
                     }
                 }
@@ -400,7 +428,13 @@ public class IQCValidator extends JFrame
                 else if (ext.equals(".sdf")) {
                     MolImporter mi = new MolImporter (url.openStream());
                     for (Molecule m; (m = mi.read()) != null; ) {
-                        molDb.put(m.getName(), m);
+                        String n = m.getName();
+                        pos = n.indexOf('-');
+                        if (pos > 0) {
+                            n = n.substring(0, pos);
+                            m.setName(n);
+                        }
+                        molDb.put(n, m);
                     }
                     logger.info("loaded "+molDb.size()
                                 +" structures from "+name);
@@ -538,14 +572,15 @@ public class IQCValidator extends JFrame
         List<Estimator.Result> results;
         String[] columns = new String[] {
             "Save?",
+            "Rank",
             "Score",
             "Selection",
-            "CLint",
+            "pCLint",
             "t1/2",
             "Slope",
             "Intercept",
             "MSE",
-            "R^2"
+            "r^2"
         };
 
         XYDataset[] datasets;
@@ -559,14 +594,15 @@ public class IQCValidator extends JFrame
         public Class getColumnClass (int col) {
             switch (col) {
             case 0: return Boolean.class; // Save
-            case 1: return Double.class; // Score
-            case 2: return String.class; // Selection
-            case 3: return Double.class; // CLint
-            case 4: return Double.class; // t1/2
-            case 5: return Double.class; // Slope
-            case 6: return Double.class; // Intercept
-            case 7: return Double.class; // MSE
-            case 8: return Double.class; // R
+            case 1: return Integer.class; // Rank
+            case 2: return Double.class; // Score
+            case 3: return String.class; // Selection
+            case 4: return Double.class; // CLint
+            case 5: return Double.class; // t1/2
+            case 6: return Double.class; // Slope
+            case 7: return Double.class; // Intercept
+            case 8: return Double.class; // MSE
+            case 9: return Double.class; // R
             }
             return Object.class;
         }
@@ -584,8 +620,9 @@ public class IQCValidator extends JFrame
                 Boolean save = savedResults.get(result);
                 return save != null && save;
             }
-            case 1: return result.getScore();
-            case 2: 
+            case 1: return result.getRank();
+            case 2: return result.getScore();
+            case 3: 
                 { StringBuilder sb = new StringBuilder ();
                     int[] config = result.getConfig();
                     for (int i = 0; i < config.length; ++i) {
@@ -596,10 +633,10 @@ public class IQCValidator extends JFrame
                     }
                     return sb.toString();
                 }
-            case 3:
+            case 4:
                 return result.getCLint();
 
-            case 4:
+            case 5:
                 { FitModel.Variable var = model.getVariable("Slope");
                     return var != null && Math.abs(var.getValue()) > 1e-6 
                         ? -Math.log(2)/var.getValue() : null;
@@ -974,17 +1011,19 @@ public class IQCValidator extends JFrame
         box.add(update);
 
         box.add(Box.createHorizontalStrut(5));
-        box.add(new JLabel ("CLint unit"));
+        box.add(new JLabel ("CLint unit:"));
 
-        unitCb = new JComboBox (new String[] {"mL/pmol/min",
-                                              "mL/nmol/hr"});
+        unitCb = new JComboBox (new String[] {"mL/min/pmol",
+                                              "mL/hr/nmol"});
+        unitCb.setEnabled(false);
         unitCb.addActionListener(new ActionListener () {
                 public void actionPerformed (ActionEvent e) {
                     updateCLint ();
                 }
             });
         box.add(Box.createHorizontalStrut(5));
-        box.add(unitCb);
+        //box.add(unitCb);
+        box.add(new JLabel ("<html><b>mL/min/pmol</b>"));
 
         JPanel bp = new JPanel (new BorderLayout ());
         bp.add(box, BorderLayout.WEST);
@@ -1002,7 +1041,10 @@ public class IQCValidator extends JFrame
         resultTab = new JTable (rtm);
         resultTab.setDefaultRenderer
             (Double.class, new NumericalCellRenderer (3));
-        resultTab.setRowSorter(new TableRowSorter(rtm));
+        TableRowSorter sorter = new TableRowSorter(rtm);
+        sorter.toggleSortOrder(0); // 
+        sorter.toggleSortOrder(0); // sort by save option desc
+        resultTab.setRowSorter(sorter);
         resultTab.getSelectionModel().setSelectionMode
             (ListSelectionModel.SINGLE_SELECTION);
         resultTab.getSelectionModel().addListSelectionListener(this);
@@ -1076,10 +1118,10 @@ public class IQCValidator extends JFrame
         try {
             double conc = Double.parseDouble(cypConc.getText());
 
-            CLUnit unit = CLUnit.mL_pmol_min;
+            CLUnit unit = CLUnit.mL_min_pmol;
             switch (unitCb.getSelectedIndex()) {
-            case 0: unit = CLUnit.mL_pmol_min; break;
-            case 1: unit = CLUnit.mL_nmol_hr; break;
+            case 0: unit = CLUnit.mL_min_pmol; break;
+            case 1: unit = CLUnit.mL_hr_nmol; break;
             }
 
             for (Enumeration en = root.depthFirstEnumeration();
@@ -1105,8 +1147,8 @@ public class IQCValidator extends JFrame
     protected void updateCLint (Collection<Estimator.Result> results) {
         double conc = Double.parseDouble(cypConc.getText());
         switch (unitCb.getSelectedIndex()) {
-        case 0: updateCLint (CLUnit.mL_pmol_min, conc, results); break;
-        case 1: updateCLint (CLUnit.mL_nmol_hr, conc, results); break;
+        case 0: updateCLint (CLUnit.mL_min_pmol, conc, results); break;
+        case 1: updateCLint (CLUnit.mL_hr_nmol, conc, results); break;
         }
     }
 
@@ -1116,16 +1158,36 @@ public class IQCValidator extends JFrame
         for (Estimator.Result r : results) {
             FitModel.Variable slope = 
                 r.getModel().getVariable("Slope");
+            Double k = slope.getValue();
             switch (unit) {
-            case mL_pmol_min:
-                r.setCLint(-slope.getValue() / conc);
+            case mL_min_pmol:
+                if (k != null && k < 0.) {
+                    r.setCLint(-Math.log(-k / conc));
+                }
+                else {
+                    r.setCLint(null);
+                }
                 break;
                 
-            case mL_nmol_hr:
-                r.setCLint((-slope.getValue() / conc)*60*1000);
+            case mL_hr_nmol:
+                if (k != null && k < 0.) {
+                    r.setCLint(Math.log((-k / conc)*60*1000));
+                }
+                else {
+                    r.setCLint(null);
+                }
                 break;
             }
         }
+    }
+
+
+    protected Molecule getMol (String name) {
+        int pos = name.indexOf('-');
+        if (pos > 0) {
+            name = name.substring(0, pos);
+        }
+        return molDb.get(name);
     }
 
     public void actionPerformed (ActionEvent e) {
@@ -1178,13 +1240,13 @@ public class IQCValidator extends JFrame
         if (data != null) {
 
             rtm.setResults(data.getResults());
-            Molecule mol = molDb.get(data.getName());
+            Molecule mol = getMol (data.getName());
             if (mol == null) {
                 // try the parent
                 Object parent = node.getParent();
                 if (parent != null && parent instanceof SampleTreeNode) {
-                    mol = molDb.get(((SampleTreeNode)parent)
-                                    .getData().getName());
+                    mol = getMol (((SampleTreeNode)parent)
+                                  .getData().getName());
                 }
             }
             mview.setM(0, mol);
@@ -1289,6 +1351,7 @@ public class IQCValidator extends JFrame
         }
     }
 
+    Set<String> samples = new TreeSet<String>();
     protected DefaultMutableTreeNode loadSampleTree 
         (boolean correction, InputStream is) 
         throws IOException {
@@ -1306,6 +1369,7 @@ public class IQCValidator extends JFrame
                 || name.equalsIgnoreCase("blank"))
                 ;
             else {
+                samples.add(name);
                 if (correction) {
                     Measure m = s.get(0); // adjust T0
                     Double r = m.getResponse();
@@ -1370,7 +1434,8 @@ public class IQCValidator extends JFrame
         }
 
         FileNameExtensionFilter filter = new FileNameExtensionFilter
-            ("CSV file", "csv");
+            //("CSV file", "csv");
+            ("SDF file", "sdf", "sd");
         chooser.setFileFilter(filter);
         chooser.setDialogTitle("Save results...");
         int ans = chooser.showSaveDialog(this);
@@ -1379,11 +1444,11 @@ public class IQCValidator extends JFrame
 
             int index = file.getName().lastIndexOf('.');
             if (index < 0) {
-                file = new File (file.getParent(), file.getName()+".csv");
+                file = new File (file.getParent(), file.getName()+".sdf");
             }
             else {
                 file = new File (file.getParent(), 
-                                 file.getName().substring(0, index)+".csv");
+                                 file.getName().substring(0, index)+".sdf");
             }
 
             if (file.exists()) {
@@ -1395,7 +1460,7 @@ public class IQCValidator extends JFrame
             }
             
             try {
-                exportCSV (file, saves);
+                exportSDF (file, saves);
                 saveDirty = false;
             }
             catch (IOException ex) {
@@ -1412,27 +1477,20 @@ public class IQCValidator extends JFrame
         PrintStream ps = new PrintStream (new FileOutputStream (file));
 
         ResultTableModel rtm = (ResultTableModel)resultTab.getModel();
-        ps.println("Sample,SMILES,Score,Data Points,CLint ["
-                   +unitCb.getSelectedItem()+"]"
-                   +",t1/2 [min],Slope,Intercept,MSE,R^2");
+        ps.println("Sample,SMILES,Score,Data Points,pCLint"
+                   +",t1/2 [min],Slope,Intercept,MSE,r^2");
         for (Estimator.Result r : results) {
             String name = r.getSample().getName();
             ps.print(name+",");
-            Molecule mol = molDb.get(name);
-            if (mol == null) {
-                int pos = name.indexOf('-');
-                if (pos > 0) {
-                    name = name.substring(0, pos);
-                    mol = molDb.get(name);
-                }
-            }
+
+            Molecule mol = getMol (name);
             ps.print((mol != null ? mol.toFormat("smiles") : "")+",");
             ps.print(String.format("%1$.3f", r.getScore())+",");
 
             int[] config = r.getConfig();
             Measure[] pts = r.getMeasures();
-            for (int i = 0, j = 0; i < config.length; ++i) 
-                if (config[i] > 0) {
+            for (int i = 0, j = 0; i < config.length && i < pts.length; ++i) 
+                if (config[i] > 0 && pts[i] != null) {
                     if (j > 0) ps.print(" ");
                     ps.print("T"+pts[i].getTime().intValue());
                     ++j;
@@ -1446,8 +1504,81 @@ public class IQCValidator extends JFrame
             ps.print(","+model.getVariable("Slope").getValue());
             ps.print(","+model.getVariable("Intercept").getValue());
             ps.print(","+model.getVariable("MSE").getValue());
-            ps.print(","+model.getVariable("R^2").getValue());
+            ps.print(","+model.getVariable("r^2").getValue());
             ps.println();
+        }
+    }
+
+    protected void exportSDF (File file, Collection<Estimator.Result> results) 
+        throws IOException {
+        logger.info("Saving results into \""+file+"\"...");
+        PrintStream ps = new PrintStream (new FileOutputStream (file));
+
+        String dataset = getTitle ();
+        ResultTableModel rtm = (ResultTableModel)resultTab.getModel();
+        for (Estimator.Result r : results) {
+            String name = r.getSample().getName();
+            Molecule mol = getMol (name);
+            if (mol != null) {
+                Molecule m = mol.cloneMolecule();
+                m.setProperty("Dataset", dataset);
+                m.setProperty("SMILES", m.toFormat("smiles:q"));
+                m.setProperty("Score", 
+                              String.format("%1$.3f", r.getScore()));
+
+                int[] config = r.getConfig();
+                Measure[] pts = r.getMeasures();
+                StringBuilder sb= new StringBuilder ();
+                Double r0 = null;
+                for (int i = 0, j = 0; i < config.length 
+                         && i < pts.length; ++i) {
+                    Double t = pts[i].getTime();
+                    if (t != null && t.intValue() == 0)
+                        r0 = pts[i].getResponse();
+
+                    if (config[i] > 0 && t != null) {
+                        //if (j > 0) sb.append(" ");
+                        //sb.append("T"+pts[i].getTime().intValue());
+                        double rr = 100*pts[i].getResponse()/r0;
+                        sb.append(String.format
+                                  ("%1$2d %2$.1f\n", t.intValue(), rr));
+                        ++j;
+                    }
+                }
+
+                m.setProperty("Responses", sb.toString());
+                if (r.getCLint() != null) {
+                    m.setProperty("pCLint", 
+                                  String.format("%1$.3f", r.getCLint()));
+                }
+
+                FitModel model = r.getModel();
+                { FitModel.Variable var = model.getVariable("Slope");
+                    Double t1_2 = var != null 
+                        && Math.abs(var.getValue()) > 1e-6
+                        ? -Math.log(2)/var.getValue() : null;
+                    if (t1_2 != null) {
+                        m.setProperty("t1/2", String.format("%1$.3f", t1_2));
+                    }
+                }
+                m.setProperty("Slope", 
+                              String.format("%1$.3f", model
+                                            .getVariable("Slope")
+                                            .getValue()));
+                m.setProperty("Intercept", 
+                              String.format("%1$.3f",
+                                            (model.getVariable
+                                             ("Intercept").getValue())));
+                m.setProperty("MSE", 
+                              String.format("%1$.3f",
+                                            model.getVariable
+                                            ("MSE").getValue()));
+                m.setProperty("r^2",
+                              String.format("%1$.3f",
+                                            model.getVariable("r^2")
+                                            .getValue()));
+                ps.print(m.toFormat("sdf"));
+            }
         }
     }
 
@@ -1467,6 +1598,20 @@ public class IQCValidator extends JFrame
     }
 
     protected void quit () {
+
+        try {
+            PrintStream ps = new PrintStream
+                (new FileOutputStream  ("samples.txt"));
+            for (String s : samples) {
+                ps.println(s);
+            }
+            ps.close();
+        }
+        catch (IOException ex) {
+            ex.printStackTrace();
+        }
+
+
         if (confirmedSave ()) 
             System.exit(0);
     }

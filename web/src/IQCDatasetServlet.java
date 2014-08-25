@@ -22,6 +22,7 @@ public class IQCDatasetServlet extends HttpServlet {
 
     File datasetDir;
     ServletContext context;
+    String iqcJdbc;
 
     @Override
     public void init (ServletConfig config) throws ServletException {
@@ -38,11 +39,23 @@ public class IQCDatasetServlet extends HttpServlet {
             if (!datasetDir.exists()) {
                 datasetDir.mkdir();
             }
+
+            iqcJdbc = context.getInitParameter("jdbc-iqc");
+            if (iqcJdbc == null) {
+                throw new ServletException
+                    ("No jdbc-iqc parameter defined");
+            }
+
+            logger.info("## jdbc-iqc: "+iqcJdbc);
         }
         catch (Exception ex) {
             logger.log(Level.SEVERE, "Can't initialize servlet!", ex);
 	    throw new ServletException (ex);
         }
+    }
+
+    Connection getConnection () throws SQLException {
+        return DriverManager.getConnection(iqcJdbc);
     }
     
     @Override
@@ -123,8 +136,11 @@ public class IQCDatasetServlet extends HttpServlet {
         logger.info(req.getContextPath()+": "+info);
         if (info == null || info.length() <= 1) {
             PrintWriter pw = res.getWriter();
-            for (String f : datasetDir.list()) {
-                pw.println(f);
+            try {
+                listDatasets (pw);
+            }
+            catch (SQLException ex) {
+                ex.printStackTrace();
             }
             return;
         }
@@ -165,6 +181,30 @@ public class IQCDatasetServlet extends HttpServlet {
         else {
             res.getWriter().println("Dataset \""+args[1]+"\" not found!");
             res.setStatus(HttpServletResponse.SC_NOT_FOUND);
+        }
+    }
+
+    void listDatasets (PrintWriter pw) throws SQLException {
+        Connection con = getConnection ();
+        try {
+            PreparedStatement pstm = con.prepareStatement
+                ("select count(*) from iqc_validator_annotation where "
+                 +"dataset = ?");
+            for (String f : datasetDir.list()) {
+                pstm.setString(1, f);
+                ResultSet rset = pstm.executeQuery();
+                if (rset.next()) {
+                    pw.println(f+"\t"+rset.getInt(1));
+                }
+                else {
+                    pw.println(f);
+                }
+                rset.close();
+            }
+            pstm.close();
+        }
+        finally {
+            con.close();
         }
     }
 }

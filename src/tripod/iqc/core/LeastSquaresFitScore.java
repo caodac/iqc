@@ -7,9 +7,15 @@ import static tripod.iqc.core.LeastSquaresEstimator.*;
  * fit model. 
  */
 public class LeastSquaresFitScore implements FitScore {
-    final static double BEST_SCORE = 11.81250; // 6(1+1/2+1/4+1/8+1/16+1/32)
+    final static double BEST_SCORE = 1.96875; //= 1+1/2+1/4+1/8+1/16+1/32
+    final static double DEFAULT_ALPHA = .7;
 
+    private double alpha; // weight assigned to R
     public LeastSquaresFitScore () {
+        this (DEFAULT_ALPHA);
+    }
+    public LeastSquaresFitScore (double alpha) {
+        this.alpha = alpha;
     }
 
     /**
@@ -42,8 +48,8 @@ public class LeastSquaresFitScore implements FitScore {
             case 60: score += 1/32.; break;
             }
         }
-        score *= measures.length * Math.exp(-lfm.getMSE()) 
-            * lfm.getR() * lfm.getR();
+        score *= alpha*lfm.getR()*lfm.getR() 
+            + (1.-alpha)*Math.exp(-lfm.getMSE());
 
         return score/BEST_SCORE;
     }
