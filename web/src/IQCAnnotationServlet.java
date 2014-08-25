@@ -191,8 +191,10 @@ public class IQCAnnotationServlet extends HttpServlet {
             if (args != null && args.length > 1) {
                 PreparedStatement pstm = con.prepareStatement
                     ("select * from iqc_validator_annotation "
-                     +"where dataset = ? order by sample, annotation_time");
+                     +"where dataset = ? and comments = ? "
+                     +"order by sample, annotation_time");
                 pstm.setString(1, args[1]);
+                pstm.setString(2, "148.168.40.121");
                 ResultSet rset = pstm.executeQuery();
                 while (rset.next()) {
                     pw.println(rset.getString("sample")+"\t"+
@@ -206,6 +208,7 @@ public class IQCAnnotationServlet extends HttpServlet {
                 Statement stm = con.createStatement();
                 ResultSet rset = stm.executeQuery
                     ("select * from iqc_validator_annotation "
+                     +"where comments = '148.168.40.121' "
                      +"order by dataset, sample, annotation_time");
                 while (rset.next()) {
                     pw.println(rset.getString("dataset")+"\t"+

@@ -9,7 +9,8 @@ public interface Estimator {
         int[] config; // configuration
         FitModel model;
         Double score;
-        double clint; // intrinsic clearance
+        Double clint; // intrinsic clearance
+        int rank;
 
         Result (Sample sample, Measure[] measures, 
                 int[] config, FitModel model, FitScore scorer) {
@@ -38,9 +39,11 @@ public interface Estimator {
         public int[] getConfig () { return config; }
         public FitModel getModel () { return model; }
         public Double getScore () { return score; }
+        public int getRank () { return rank; }
+        public void setRank (int rank) { this.rank = rank; }
 
-        public double getCLint () { return clint; }
-        public void setCLint (double clint) { this.clint = clint; }
+        public Double getCLint () { return clint; }
+        public void setCLint (Double clint) { this.clint = clint; }
 
         public int compareTo (Result r) {
             Double s = r.getScore();
@@ -52,6 +55,7 @@ public interface Estimator {
         public String toString () {
             StringBuilder sb = new StringBuilder ("Result{\n");
             sb.append(" sample: "+sample.getName()+"\n");
+            sb.append(" Rank: "+rank+"\n");
             sb.append(" measures:\n");
             if (config != null) {
                 for (int i = 0; i < config.length; ++i) {

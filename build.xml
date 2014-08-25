@@ -57,20 +57,23 @@
        <manifest>
           <attribute name="Built-By" value="${user.name}"/>
           <attribute name="Main-Class" value="tripod.iqc.validator.IQCValidator"/>
+          <attribute name="Permissions" value="all-permissions"/>
+          <attribute name="Application-Name" value="IQC Validator"/>
+          <attribute name="Codebase" value="*.nih.gov"/>
        </manifest>
     </jar>
   </target>
 
   <target name="signlibs">
-     <signjar alias="ncgc" keystore="../tripod/etc/ncgc-keystore.bin"
-               storepass="nihncgc">
-            <fileset dir="signedlib" includes="jcommon-1.0.17.jar,jfreechart-1.0.14.jar"/>
+     <signjar alias="QHTS" keystore="../tripod/etc/ncats-keystore.bin"
+               storepass="NCATS9800">
+            <fileset dir="signedlib" includes="commons-logging-1.1.1.jar,commons-math-2.2.jar,httpclient-4.1.1.jar,httpcore-4.1.jar,httpmime-4.1.1.jar,jchem.jar,jcommon-1.0.17.jar,jfreechart-1.0.14.jar"/>
      </signjar>
   </target>
 
   <target name="deploy" depends="dist">
-     <signjar alias="ncgc" keystore="../tripod/etc/ncgc-keystore.bin"
-                 storepass="nihncgc">
+     <signjar alias="QHTS" keystore="../tripod/etc/ncats-keystore.bin"
+                 storepass="NCATS9800">
         <fileset dir="${dist}" includes="${jar}"/>
      </signjar>
      <copy todir="${deploy}">
