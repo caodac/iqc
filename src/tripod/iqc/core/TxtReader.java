@@ -6,7 +6,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 import java.util.logging.Level;
 
-public class TxtReader implements Reader, Comparator<Measure> {
+public class TxtReader implements Reader {
     private static final Logger logger = 
         Logger.getLogger(TxtReader.class.getName());
 
@@ -24,24 +24,6 @@ public class TxtReader implements Reader, Comparator<Measure> {
 
     public TxtReader (InputStream is) throws IOException {
         reader = new BufferedReader (new InputStreamReader (is));
-    }
-
-    public int compare (Measure m1, Measure m2) {
-        int r1 = m1.getReplicate(), r2 = m2.getReplicate();
-        if (r1 == r2) {
-            Double t1 = m1.getTime(), t2 = m2.getTime();
-            if (t1 != null && t2 != null) {
-                if (t1 < t2) return -1;
-                if (t1 > t2) return 1;
-            }
-            else if (t1 != null) 
-                return -1;
-            else if (t2 != null)
-                return 1;
-            return 0;
-        }
-
-        return r1 - r2;
     }
 
     /**
@@ -184,7 +166,7 @@ public class TxtReader implements Reader, Comparator<Measure> {
         }
 
         // sort the measures based on time
-        Collections.sort(measures, this);
+        Collections.sort(measures);
         for (Measure m : measures) {
             sampl.add(m);
         }

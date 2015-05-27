@@ -65,14 +65,14 @@
   </target>
 
   <target name="signlibs">
-     <signjar alias="QHTS" keystore="../tripod/etc/ncats-keystore.bin"
+     <signjar alias="ncats" keystore="../tripod/etc/ncats-keystore-2015.bin"
                storepass="NCATS9800">
-            <fileset dir="signedlib" includes="commons-logging-1.1.1.jar,commons-math-2.2.jar,httpclient-4.1.1.jar,httpcore-4.1.jar,httpmime-4.1.1.jar,jchem.jar,jcommon-1.0.17.jar,jfreechart-1.0.14.jar"/>
+            <fileset dir="signedlibs" includes="commons-logging-1.1.1.jar,commons-math-2.2.jar,httpclient-4.1.1.jar,httpcore-4.1.jar,httpmime-4.1.1.jar,jchem.jar,jcommon-1.0.17.jar,jfreechart-1.0.14.jar"/>
      </signjar>
   </target>
 
   <target name="deploy" depends="dist">
-     <signjar alias="QHTS" keystore="../tripod/etc/ncats-keystore.bin"
+     <signjar alias="ncats" keystore="../tripod/etc/ncats-keystore-2015.bin"
                  storepass="NCATS9800">
         <fileset dir="${dist}" includes="${jar}"/>
      </signjar>
