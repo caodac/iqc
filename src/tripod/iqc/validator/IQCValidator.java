@@ -45,7 +45,7 @@ import org.apache.http.entity.mime.content.FileBody;
 import org.apache.http.client.methods.*;
 
 import tripod.iqc.core.*;
-
+import lychi.LyChIStandardizer;
 
 public class IQCValidator extends JFrame 
     implements ActionListener, ListSelectionListener, TreeSelectionListener {
@@ -56,6 +56,10 @@ public class IQCValidator extends JFrame
         mL_min_pmol,
             mL_hr_nmol
             }
+
+    enum Format {
+        Txt, Csv;
+    }
 
     static double DEFAULT_CYP_CONC = 29.03;
 
@@ -78,6 +82,28 @@ public class IQCValidator extends JFrame
     static final ImageIcon STAR_HALF = new ImageIcon 
         (IQCValidator.class.getResource("resources/star-half.png"));
 
+    static final Map<String, Set<String>> SAMPLE_NAMES =
+        new HashMap<String, Set<String>>();
+    static {
+        try {
+            BufferedReader br = new BufferedReader
+                (new InputStreamReader
+                 (IQCValidator.class.getResourceAsStream
+                  ("resources/name2sample.txt")));
+            for (String line; (line = br.readLine()) != null; ) {
+                String[] toks = line.split("\t");
+                Set<String> samples = new HashSet<String>();
+                for (int i = 1; i < toks.length; ++i)
+                    samples.add(toks[i]);
+                if (!samples.isEmpty())
+                    SAMPLE_NAMES.put(toks[0], samples);
+            }
+            br.close();
+        }
+        catch (Exception ex) {
+            ex.printStackTrace();
+        }
+    }
 
     static class SampleData {
         Sample sample;
@@ -174,16 +200,29 @@ public class IQCValidator extends JFrame
 
     class LoadFileWorker extends SwingWorker<Throwable, Void> {
         File file;
+        Format format;
         DefaultMutableTreeNode root;
         
-        LoadFileWorker (File file) {
+        LoadFileWorker (Format f, File file) {
+            this.format = f;
             this.file = file;
         }
 
         @Override
         protected Throwable doInBackground () {
             try {
-                root = loadSampleTree (false, new FileInputStream (file));
+                switch (format) {
+                case Txt:
+                    root = loadSampleTreeTxt
+                        (false, new FileInputStream (file));
+                    break;
+                case Csv:
+                    root = loadSampleTreeCsv (new FileInputStream (file));
+                    break;
+                default:
+                    return new RuntimeException
+                        ("Unknown file format: "+format);
+                }
             }
             catch (Exception ex) {
                 return ex;
@@ -262,6 +301,7 @@ public class IQCValidator extends JFrame
                     // now iterate through all the results and identify
                     // which ones are saved
                     savedResults.clear(); // clear the current results
+                    
                     for (Enumeration en = root.depthFirstEnumeration();
                          en.hasMoreElements(); ) {
                         DefaultMutableTreeNode node = 
@@ -273,12 +313,76 @@ public class IQCValidator extends JFrame
                                 Boolean b = saves.get(r.getId());
                                 if (b != null) {
                                     savedResults.put(r, b);
+                                    if (data.getName().startsWith("NCGC")) {
+                                        if (!r.getScore().isNaN()
+                                            && !r.getScore().isInfinite()
+                                            && r.getHalflife() > 0) {
+                                            Estimator.Result rr = 
+                                                annotatedResults.get
+                                                (data.getName());
+                                            if (rr == null 
+                                                || (r.getScore() 
+                                                    > rr.getScore())) {
+                                                annotatedResults.put
+                                                    (data.getName(), r);
+                                                annotatedData.put
+                                                    (data.getName(), data);
+                                            }
+                                            allAnnotatedResults.add(r);
+                                        }
+                                    }
+                                    else {
+                                        List<Estimator.Result> results =
+                                            controlResults.get(dataset);
+                                        if (results == null) {
+                                            results = new ArrayList<Estimator.Result>();
+                                            controlResults.put
+                                                (dataset, results);
+                                        }
+                                        results.add(r);
+                                    }
                                 }
                             }
                         }
                     }
                     logger.info(dataset+": "+savedResults.size()
                                 +" saved results retrieved!");
+
+                    logger.info(annotatedResults.size()
+                                +" total annotated NCGC samples!");
+                    TreeMap<String, Estimator.Result> sorted = 
+                        new TreeMap<String, Estimator.Result>
+                        (new Comparator<String>() {
+                            public int compare (String s1, String s2) {
+                                Estimator.Result r1 = annotatedResults.get(s1);
+                                Estimator.Result r2 = annotatedResults.get(s2);
+                                return r1.compareTo(r2);
+                            }
+                        });
+                    sorted.putAll(annotatedResults);
+
+                    PrintWriter pw = new PrintWriter
+                        (new FileWriter ("iqc-annotated-results.csv"));
+                    pw.println("Sample,Score,t1/2");
+                    PrintWriter sdf = new PrintWriter
+                        (new FileWriter ("iqc-annotated-results.sdf"));
+                    for (Map.Entry<String, Estimator.Result> me
+                             : sorted.entrySet()) {
+                        Estimator.Result r = me.getValue();
+                        pw.println(me.getKey()
+                                   +","+String.format("%1$.3f",r.getScore())
+                                   +","+String.format("%1$.3f",r.getHalflife()));
+                        Molecule m = getMol (me.getKey());
+                        if (m != null) {
+                            m = m.cloneMolecule();
+                            m.setProperty("SCORE", String.format("%1$.3f",r.getScore()));
+                            m.setProperty("T1/2",String.format("%1$.3f",r.getHalflife()));
+                            sdf.print(m.toFormat("sdf"));
+                        }
+                    }
+                    pw.close();
+                    sdf.close();
+
                     sampleTree.repaint();
                 }
             }
@@ -421,11 +525,13 @@ public class IQCValidator extends JFrame
                 if (ext.equals(".txt") || ext.equals(".TXT")) {
                     item = new JMenuItem (name);
                     item.addActionListener(loadAction);
-                    item.putClientProperty
-                        ("samples", loadSampleTree 
-                         (correction, url.openStream()));
+                    DefaultMutableTreeNode root = loadSampleTreeTxt 
+                        (correction, url.openStream());
+                    new LoadSavedResults (name, root).execute();
+                    item.putClientProperty("samples", root);
                 }
                 else if (ext.equals(".sdf")) {
+                    LyChIStandardizer lychi = new LyChIStandardizer ();
                     MolImporter mi = new MolImporter (url.openStream());
                     for (Molecule m; (m = mi.read()) != null; ) {
                         String n = m.getName();
@@ -434,6 +540,10 @@ public class IQCValidator extends JFrame
                             n = n.substring(0, pos);
                             m.setName(n);
                         }
+                        Molecule clone = m.cloneMolecule();
+                        lychi.standardize(clone);
+                        String[] hash = lychi.hashKeyArray(clone);
+                        m.setProperty("HASH", hash[2]);
                         molDb.put(n, m);
                     }
                     logger.info("loaded "+molDb.size()
@@ -637,10 +747,13 @@ public class IQCValidator extends JFrame
                 return result.getCLint();
 
             case 5:
+                /*
                 { FitModel.Variable var = model.getVariable("Slope");
                     return var != null && Math.abs(var.getValue()) > 1e-6 
                         ? -Math.log(2)/var.getValue() : null;
                 }
+                */
+                return result.getHalflife();
             }
 
             FitModel.Variable var = model.getVariable(columns[col]);
@@ -808,6 +921,14 @@ public class IQCValidator extends JFrame
         }
     }
 
+    Map<String, Estimator.Result> annotatedResults = 
+        new HashMap<String, Estimator.Result>();
+    Map<String, SampleData> annotatedData = new HashMap<String, SampleData>();
+    Map<String,List<Estimator.Result>> controlResults =
+        new HashMap<String, List<Estimator.Result>>();
+    List<Estimator.Result> allAnnotatedResults =
+        new ArrayList<Estimator.Result>();
+
     private JFileChooser chooser;
     private JTree sampleTree;
     private JTable resultTab;
@@ -926,20 +1047,24 @@ public class IQCValidator extends JFrame
              (null, "Ln (Response)", "Time (Minute)", null, 
               PlotOrientation.HORIZONTAL, true, false, false));
         chartPane1.setBackground(Color.white);
-	chartPane1.getChart().setBorderPaint(Color.white);
-	chartPane1.getChart().setBackgroundPaint(Color.white);
-	chartPane1.getChart().getPlot().setBackgroundAlpha(.5f);
-	chartPane1.getChart().getXYPlot().setRangeGridlinesVisible(false);
-	chartPane1.getChart().getXYPlot().setDomainGridlinesVisible(false);
+        chartPane1.getChart().setBorderPaint(Color.white);
+        chartPane1.getChart().setBackgroundPaint(Color.white);
+        chartPane1.getChart().getPlot().setBackgroundAlpha(.5f);
+        chartPane1.getChart().getXYPlot().setRangeGridlinesVisible(false);
+        chartPane1.getChart().getXYPlot().setDomainGridlinesVisible(false);
 
-	// main renderer
-	XYItemRenderer renderer1 = new  XYLineAndShapeRenderer ();
+        XYItemRenderer def = new XYLineAndShapeRenderer ();
+        def.setSeriesPaint(2, Color.blue);
+        
+        // main renderer
+        XYItemRenderer renderer1 = new  XYLineAndShapeRenderer ();
         //renderer1.setSeriesPaint(0, Color.black);
-	chartPane1.getChart().getXYPlot().setRenderer(0, renderer1); 
+        chartPane1.getChart().getXYPlot().setRenderer(0, renderer1);
+        chartPane1.getChart().getXYPlot().setRenderer(2, def); 
 
         XYItemRenderer fit;
-	chartPane1.getChart().getXYPlot().setRenderer
-	    (1, fit = new  XYLineAndShapeRenderer ());// mask renderer
+        chartPane1.getChart().getXYPlot().setRenderer
+            (1, fit = new  XYLineAndShapeRenderer ());// mask renderer
         fit.setSeriesPaint(0, Color.black);
         fit.setSeriesVisibleInLegend(1, false);
 
@@ -948,11 +1073,11 @@ public class IQCValidator extends JFrame
              (null, "% Response", "Time (Minute)", null, 
               PlotOrientation.HORIZONTAL, true, false, false));
         chartPane2.setBackground(Color.white);
-	chartPane2.getChart().setBorderPaint(Color.white);
-	chartPane2.getChart().setBackgroundPaint(Color.white);
-	chartPane2.getChart().getPlot().setBackgroundAlpha(.5f);
-	chartPane2.getChart().getXYPlot().setRangeGridlinesVisible(false);
-	chartPane2.getChart().getXYPlot().setDomainGridlinesVisible(false);
+        chartPane2.getChart().setBorderPaint(Color.white);
+        chartPane2.getChart().setBackgroundPaint(Color.white);
+        chartPane2.getChart().getPlot().setBackgroundAlpha(.5f);
+        chartPane2.getChart().getXYPlot().setRangeGridlinesVisible(false);
+        chartPane2.getChart().getXYPlot().setDomainGridlinesVisible(false);
         LogarithmicAxis axis = new LogarithmicAxis ("% Response");
         axis.setRange(new Range (.1, 200));
         axis.setAutoRangeNextLogFlag(true);
@@ -960,11 +1085,12 @@ public class IQCValidator extends JFrame
         chartPane2.getChart().getXYPlot().setDomainAxis(axis);
 
         // use the same renderer as th ln(response)
-	XYItemRenderer renderer2 = new  XYLineAndShapeRenderer ();
+        XYItemRenderer renderer2 = new  XYLineAndShapeRenderer ();
         //renderer2.setSeriesPaint(0, Color.black);
-	chartPane2.getChart().getXYPlot().setRenderer(0, renderer2); 
+        chartPane2.getChart().getXYPlot().setRenderer(0, renderer2);
+        chartPane2.getChart().getXYPlot().setRenderer(2, def);
 
-	//chartPane2.getChart().getXYPlot().setRenderer
+        //chartPane2.getChart().getXYPlot().setRenderer
         //  (1, renderer = new  XYLineAndShapeRenderer ());// mask renderer
         
         JSplitPane split = new JSplitPane (JSplitPane.HORIZONTAL_SPLIT);
@@ -1072,8 +1198,13 @@ public class IQCValidator extends JFrame
         item.addActionListener(this);
         menu.addSeparator();
 
-        item = menu.add(new JMenuItem ("Import"));
-        item.setToolTipText("Import data file");
+        JMenu importMenu = new JMenu ("Import");
+        menu.add(importMenu);
+        item = importMenu.add(new JMenuItem ("Txt"));
+        item.setToolTipText("Import Txt data file");
+        item.addActionListener(this);
+        item = importMenu.add(new JMenuItem ("Csv"));
+        item.setToolTipText("Import Csv data file");
         item.addActionListener(this);
 
         item = menu.add(new JMenuItem ("Export"));
@@ -1105,7 +1236,7 @@ public class IQCValidator extends JFrame
         ResultTableModel model = (ResultTableModel)resultTab.getModel();
         model.clear();
         clearPlots ();
-        new LoadSavedResults (name, root).execute();
+        //new LoadSavedResults (name, root).execute();
         sampleTree.setModel(new DefaultTreeModel (root));
         updateCLint (root);
     }
@@ -1192,8 +1323,11 @@ public class IQCValidator extends JFrame
 
     public void actionPerformed (ActionEvent e) {
         String cmd = e.getActionCommand();
-        if (cmd.equalsIgnoreCase("import")) {
-            load ();
+        if (cmd.equalsIgnoreCase("txt")) {
+            loadTxt ();
+        }
+        else if (cmd.equalsIgnoreCase("csv")) {
+            loadCsv ();
         }
         else if (cmd.equalsIgnoreCase("export")) {
             export ();
@@ -1237,8 +1371,7 @@ public class IQCValidator extends JFrame
         sampleTree.expandPath(path);
 
         SampleData data = (SampleData)node.getData();
-        if (data != null) {
-
+        if (data != null) {            
             rtm.setResults(data.getResults());
             Molecule mol = getMol (data.getName());
             if (mol == null) {
@@ -1251,10 +1384,43 @@ public class IQCValidator extends JFrame
             }
             mview.setM(0, mol);
             plot.setDataset(0, data.getDataset());
-            
             plot = chartPane2.getChart().getXYPlot();
             plot.setDataset(0, data.getRatioDataset());
 
+            Set<String> samples = SAMPLE_NAMES.get(data.getName());
+            chartPane2.getChart().getXYPlot().setDataset(2, null);
+            chartPane2.getChart().getXYPlot().clearAnnotations();           
+            if (samples != null) {
+                logger.info("Samples: "+samples);
+                for (String s : samples) {
+                    SampleData d = annotatedData.get(s);
+                    if (d != null) {
+                        if (mol == null) {
+                            mview.setM(0, getMol (s));
+                        }
+                        
+                        logger.info("Annotated sample "
+                                    +s+": "+annotatedResults.get(s));
+                        /*
+                        chartPane1.getChart()
+                            .getXYPlot().setDataset(2, d.getDataset());
+                        */
+                        chartPane2.getChart()
+                            .getXYPlot().setDataset(2, d.getRatioDataset());
+                        Estimator.Result result = annotatedResults.get(s);
+                        if (result != null) {
+                            Double t12 = result.getHalflife();
+                            XYAnnotation anno = new XYTextAnnotation
+                                ("t1/2 = "+String.format("%1$.2f min", t12),
+                                 600., 50.);
+                            chartPane2.getChart()
+                                .getXYPlot().addAnnotation(anno);
+                        }
+                        break; // just the first one 
+                    }
+                }
+            }
+            
             // isStable() must be called after getDataset()
             if (data.isStable())
                 plotHeader.setText
@@ -1264,6 +1430,7 @@ public class IQCValidator extends JFrame
         else {
             rtm.clear();
             chartPane2.getChart().getXYPlot().setDataset(0, null);
+            chartPane2.getChart().getXYPlot().setDataset(2, null);
         }
     }
 
@@ -1285,7 +1452,7 @@ public class IQCValidator extends JFrame
         }
     }
 
-    protected void load () {
+    protected void loadTxt () {
         if (confirmedSave ()) {
             FileNameExtensionFilter filter = new FileNameExtensionFilter
                 ("TXT file", "txt", "text");
@@ -1294,11 +1461,25 @@ public class IQCValidator extends JFrame
             int ans = chooser.showOpenDialog(this);
             if (JFileChooser.APPROVE_OPTION == ans) {
                 File file = chooser.getSelectedFile();
-                new LoadFileWorker (file).execute();
+                new LoadFileWorker (Format.Txt, file).execute();
             }
         }
     }
 
+    protected void loadCsv () {
+        if (confirmedSave ()) {
+            FileNameExtensionFilter filter = new FileNameExtensionFilter
+                ("CSV file", "csv", "text");
+            chooser.setFileFilter(filter);
+            chooser.setDialogTitle("Load csv data file...");
+            int ans = chooser.showOpenDialog(this);
+            if (JFileChooser.APPROVE_OPTION == ans) {
+                File file = chooser.getSelectedFile();
+                new LoadFileWorker (Format.Csv, file).execute();
+            }
+        }
+    }
+    
     protected void upload () {
         FileNameExtensionFilter filter = new FileNameExtensionFilter
             ("TXT file", "txt", "text");
@@ -1352,7 +1533,7 @@ public class IQCValidator extends JFrame
     }
 
     Set<String> samples = new TreeSet<String>();
-    protected DefaultMutableTreeNode loadSampleTree 
+    protected DefaultMutableTreeNode loadSampleTreeTxt
         (boolean correction, InputStream is) 
         throws IOException {
 
@@ -1378,6 +1559,26 @@ public class IQCValidator extends JFrame
                     }
                 }
                 root.add(new SampleTreeNode (s));
+            }
+        }
+
+        return root;
+    }
+
+    protected DefaultMutableTreeNode loadSampleTreeCsv
+        (InputStream is) throws IOException {
+
+        CsvReader reader = new CsvReader (is);
+
+        DefaultMutableTreeNode root = new DefaultMutableTreeNode ();
+        for (Sample s; (s = reader.read()) != null; ) {
+            if (s.size() > 2) {
+                root.add(new SampleTreeNode (s));
+            }
+            else {
+                logger.warning(s.getName()
+                               +": sample contains too few samples ("
+                               +s.size()+")");
             }
         }
 
@@ -1598,7 +1799,72 @@ public class IQCValidator extends JFrame
     }
 
     protected void quit () {
+        try {
+            PrintWriter pw =
+                new PrintWriter (new FileWriter ("iqc-controls.csv"));
+            pw.print("Sample,Formula,MolWt,Hash,Dataset,CLint,t1/2");
+            int[] measures = {0,5,10,15,30,60};
+            for (int i = 0; i < measures.length; ++i)
+                pw.print(",T"+measures[i]);
+            pw.println();
+            Set<String> hashes = new HashSet<String>();
+            for (Map.Entry<String, List<Estimator.Result>> me
+                     : controlResults.entrySet()) {
+                for (Estimator.Result r : me.getValue()) {
+                    Molecule mol = getMol(r.getSample().getName());
+                    if (mol != null) {
+                        String h = mol.getProperty("HASH");
+                        pw.print(r.getSample().getName()
+                                 +","+mol.getFormula()
+                                 +","+mol.getMass()
+                                 +","+h
+                                 +","+me.getKey()
+                                 +","+String.format("%1$.2f",r.getCLint())
+                                 +","+String.format("%1$.2f",r.getHalflife()));
+                        for (int i = 0; i < measures.length; ++i) {
+                            Measure m = r.getMeasures()[i];
+                            pw.print(","+String.format("%1.5f",m.getResponse()));
+                        }
+                        pw.println();
+                        hashes.add(h);
+                    }
+                    else {
+                        logger.warning("Can't retrieve molecule for "
+                                       +r.getSample().getName());
+                    }
+                }
+            }
 
+            for (Estimator.Result r : allAnnotatedResults) {
+                Molecule mol = getMol(r.getSample().getName());
+                if (mol != null) {
+                    String h = mol.getProperty("HASH");
+                    if (hashes.contains(h)) {
+                        pw.print(r.getSample().getName()
+                                 +","+mol.getFormula()
+                                 +","+mol.getMass()
+                                 +","+h
+                                 +","
+                                 +","+String.format("%1$.2f",r.getCLint())
+                                 +","+String.format("%1$.2f",r.getHalflife()));
+                        for (int i = 0; i < measures.length; ++i) {
+                            Measure m = r.getMeasures()[i];
+                            pw.print(","+String.format("%1.5f",m.getResponse()));
+                        }
+                        pw.println();
+                    }
+                }
+                else {
+                    logger.warning("Can't retrieve molecule for \""
+                                   +r.getSample().getName()+"\"");
+                }
+            }
+            pw.close();
+        }
+        catch (Exception ex) {
+            ex.printStackTrace();
+        }
+        
         try {
             PrintStream ps = new PrintStream
                 (new FileOutputStream  ("samples.txt"));

@@ -1,12 +1,15 @@
 package tripod.iqc.core;
 
 import java.io.Serializable;
+import java.util.Comparator;
 import java.util.concurrent.TimeUnit;
 
 /**
  * POJO Metabolic stability measure 
  */
-public class Measure implements Serializable {
+public class Measure implements Serializable,
+                                Comparable<Measure>,
+                                Comparator<Measure> {
     private static final long serialVersionUID = 0x45f2411f7f3052c5l;
 
     private String name; // measure name
@@ -99,5 +102,27 @@ public class Measure implements Serializable {
             +",time="+getTime()+" "+getTimeUnit()+",rt="+getRt()
             +",area="+getArea()+",isArea="+getIsArea()+",response="
             +getResponse()+",replicate="+replicate+"}";
+    }
+
+    public int compareTo (Measure m) {
+        return compare (this, m);
+    }
+    
+    public int compare (Measure m1, Measure m2) {
+        int r1 = m1.getReplicate(), r2 = m2.getReplicate();
+        if (r1 == r2) {
+            Double t1 = m1.getTime(), t2 = m2.getTime();
+            if (t1 != null && t2 != null) {
+                if (t1 < t2) return -1;
+                if (t1 > t2) return 1;
+            }
+            else if (t1 != null) 
+                return -1;
+            else if (t2 != null)
+                return 1;
+            return 0;
+        }
+
+        return r1 - r2;
     }
 }

@@ -45,6 +45,12 @@ public interface Estimator {
         public Double getCLint () { return clint; }
         public void setCLint (Double clint) { this.clint = clint; }
 
+        public Double getHalflife () {
+            FitModel.Variable var = model.getVariable("Slope");
+            return var != null && Math.abs(var.getValue()) > 1e-6 
+                ? -Math.log(2)/var.getValue() : null;
+        }
+
         public int compareTo (Result r) {
             Double s = r.getScore();
             if (s != null) return s.compareTo(this.score);

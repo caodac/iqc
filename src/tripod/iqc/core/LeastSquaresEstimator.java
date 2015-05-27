@@ -137,7 +137,7 @@ public class LeastSquaresEstimator
                     for (int i = 0; i < bv.length; ++i)
                         if (bv[i] > 0)
                             ++c;
-                    if (c >= m) {
+                    if (c >= 3) {
                         results.add(estimate (sample, bv, measures));
                     }
                 }
