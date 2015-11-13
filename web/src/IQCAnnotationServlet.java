@@ -13,7 +13,7 @@ import java.sql.*;
 
 public class IQCAnnotationServlet extends HttpServlet {
     static final Logger logger = 
-	Logger.getLogger(IQCAnnotationServlet.class.getName());
+        Logger.getLogger(IQCAnnotationServlet.class.getName());
 
     static {
         try {
@@ -45,7 +45,7 @@ public class IQCAnnotationServlet extends HttpServlet {
         }
         catch (Exception ex) {
             logger.log(Level.SEVERE, "Can't initialize servlet!", ex);
-	    throw new ServletException (ex);
+            throw new ServletException (ex);
         }
     }
 
@@ -72,7 +72,7 @@ public class IQCAnnotationServlet extends HttpServlet {
 
     @Override
     public void doPost (HttpServletRequest req, HttpServletResponse res)
-	throws ServletException, IOException {
+        throws ServletException, IOException {
         PrintWriter pw = res.getWriter();
 
         String[] args = getArgs (req);
@@ -89,21 +89,23 @@ public class IQCAnnotationServlet extends HttpServlet {
         try {
             con = getConnection ();
             PreparedStatement pstm = con.prepareStatement
-                ("insert into iqc_validator_annotation(dataset,sample,save,comments) "
-                 +"values(?,?,?,?)");
+                ("insert into iqc_validator_annotation"
+                 +"(dataset,sample,save,comments,curator) "
+                 +"values(?,?,?,?,?)");
             BufferedReader br = new BufferedReader
                 (new InputStreamReader (req.getInputStream()));
             int lines = 0, rows = 0;
             for (String line; (line = br.readLine()) != null; ++lines) {
                 String[] fields = line.split("[\\|\t]");
                 logger.info(addr+":"+lines+":"+fields.length+":"+line);
-                if (fields.length == 2) {
+                if (fields.length == 3) {
                     try {
                         pstm.setString(1, args[1]); // dataset
                         pstm.setString(2, fields[0]); // sample
                         boolean save = Boolean.parseBoolean(fields[1]);
                         pstm.setInt(3, save ? 1 : 0);
                         pstm.setString(4, addr);
+                        pstm.setString(5, fields[2]); // curator
                         if (pstm.executeUpdate() > 0) {
                             ++rows;
                         }
@@ -131,7 +133,7 @@ public class IQCAnnotationServlet extends HttpServlet {
 
     @Override
     public void doDelete (HttpServletRequest req, HttpServletResponse res)
-	throws ServletException, IOException {
+        throws ServletException, IOException {
         PrintWriter pw = res.getWriter();
 
         String[] args = getArgs (req);
@@ -181,7 +183,7 @@ public class IQCAnnotationServlet extends HttpServlet {
 
     @Override
     public void doGet (HttpServletRequest req, HttpServletResponse res)
-	throws ServletException, IOException {
+        throws ServletException, IOException {
         PrintWriter pw = res.getWriter();
 
         String[] args = getArgs (req);
@@ -191,15 +193,26 @@ public class IQCAnnotationServlet extends HttpServlet {
             if (args != null && args.length > 1) {
                 PreparedStatement pstm = con.prepareStatement
                     ("select * from iqc_validator_annotation "
-                     +"where dataset = ? and comments = ? "
-                     +"order by sample, annotation_time");
+                     +"where dataset = ? "
+                     +"order by sample, anno_id desc");
                 pstm.setString(1, args[1]);
-                pstm.setString(2, "148.168.40.121");
+                //pstm.setString(2, "148.168.40.121");
                 ResultSet rset = pstm.executeQuery();
+                String sample = "";
+                String curator = "";
                 while (rset.next()) {
-                    pw.println(rset.getString("sample")+"\t"+
-                               rset.getInt("save")+"\t"+
-                               rset.getLong("anno_id"));
+                    String c = rset.getString("curator");
+                    if (c == null)
+                        c = "";
+                    String s = rset.getString("sample");
+                    if (!sample.equals(s) || !curator.equals(c)) {
+                        pw.println(s+"\t"+
+                                   rset.getInt("save")+"\t"+
+                                   rset.getLong("anno_id")+"\t"+
+                                   c);
+                    }
+                    sample = s;
+                    curator = c;
                 }
                 rset.close();
                 pstm.close();
@@ -208,7 +221,7 @@ public class IQCAnnotationServlet extends HttpServlet {
                 Statement stm = con.createStatement();
                 ResultSet rset = stm.executeQuery
                     ("select * from iqc_validator_annotation "
-                     +"where comments = '148.168.40.121' "
+                     //+"where comments = '148.168.40.121' "
                      +"order by dataset, sample, annotation_time");
                 while (rset.next()) {
                     pw.println(rset.getString("dataset")+"\t"+

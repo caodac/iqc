@@ -52,6 +52,9 @@ public class IQCValidator extends JFrame
     static final Logger logger = 
         Logger.getLogger(IQCValidator.class.getName());
 
+    static final String URL_BASE = "https://tripod.nih.gov/servlet";
+    //static final String URL_BASE = "http://localhost:8080";
+
     enum CLUnit {
         mL_min_pmol,
             mL_hr_nmol
@@ -95,8 +98,11 @@ public class IQCValidator extends JFrame
                 Set<String> samples = new HashSet<String>();
                 for (int i = 1; i < toks.length; ++i)
                     samples.add(toks[i]);
-                if (!samples.isEmpty())
+                if (!samples.isEmpty()) {
                     SAMPLE_NAMES.put(toks[0], samples);
+                    for (String name : samples)
+                        SAMPLE_NAMES.put(name, samples);
+                }
             }
             br.close();
         }
@@ -252,7 +258,8 @@ public class IQCValidator extends JFrame
         String dataset;
         DefaultMutableTreeNode root;
         Map<String, Boolean> saves = new HashMap<String, Boolean>();
-
+        Map<String, String> curators = new HashMap<String, String>();
+        
         LoadSavedResults (String dataset, DefaultMutableTreeNode root) {
             this.dataset = dataset;
             this.root = root;
@@ -262,8 +269,8 @@ public class IQCValidator extends JFrame
         protected Throwable doInBackground () {
             try {
                 URL url = new URL 
-                    ("http://tripod.nih.gov/servlet/iqc-web/annotation/"
-                     +(dataset != null ? dataset : ""));
+                    (URL_BASE+"/iqc-web/annotation/"
+                     +(dataset != null ? dataset.replaceAll(" ","%20") : ""));
 
                 logger.info("Retrieving saved results for \""+dataset+"\"...");
                 BufferedReader br = new BufferedReader 
@@ -272,8 +279,12 @@ public class IQCValidator extends JFrame
                 int count = 0;
                 for (String line; (line = br.readLine()) != null; ++count) {
                     String[] toks = line.split("\t");
-                    if (toks.length == 3) {
-                        saves.put(toks[0], Integer.parseInt(toks[1]) == 1);
+                    if (toks.length >= 3) {
+                        if (!saves.containsKey(toks[0])) {
+                            saves.put(toks[0], Integer.parseInt(toks[1]) == 1);
+                            if (toks.length > 3)
+                                curators.put(toks[0], toks[3]);
+                        }
                     }
                     //System.out.println(line);
                 }
@@ -300,7 +311,7 @@ public class IQCValidator extends JFrame
                 else {
                     // now iterate through all the results and identify
                     // which ones are saved
-                    savedResults.clear(); // clear the current results
+                    //savedResults.clear(); // clear the current results
                     
                     for (Enumeration en = root.depthFirstEnumeration();
                          en.hasMoreElements(); ) {
@@ -348,41 +359,6 @@ public class IQCValidator extends JFrame
                     logger.info(dataset+": "+savedResults.size()
                                 +" saved results retrieved!");
 
-                    logger.info(annotatedResults.size()
-                                +" total annotated NCGC samples!");
-                    TreeMap<String, Estimator.Result> sorted = 
-                        new TreeMap<String, Estimator.Result>
-                        (new Comparator<String>() {
-                            public int compare (String s1, String s2) {
-                                Estimator.Result r1 = annotatedResults.get(s1);
-                                Estimator.Result r2 = annotatedResults.get(s2);
-                                return r1.compareTo(r2);
-                            }
-                        });
-                    sorted.putAll(annotatedResults);
-
-                    PrintWriter pw = new PrintWriter
-                        (new FileWriter ("iqc-annotated-results.csv"));
-                    pw.println("Sample,Score,t1/2");
-                    PrintWriter sdf = new PrintWriter
-                        (new FileWriter ("iqc-annotated-results.sdf"));
-                    for (Map.Entry<String, Estimator.Result> me
-                             : sorted.entrySet()) {
-                        Estimator.Result r = me.getValue();
-                        pw.println(me.getKey()
-                                   +","+String.format("%1$.3f",r.getScore())
-                                   +","+String.format("%1$.3f",r.getHalflife()));
-                        Molecule m = getMol (me.getKey());
-                        if (m != null) {
-                            m = m.cloneMolecule();
-                            m.setProperty("SCORE", String.format("%1$.3f",r.getScore()));
-                            m.setProperty("T1/2",String.format("%1$.3f",r.getHalflife()));
-                            sdf.print(m.toFormat("sdf"));
-                        }
-                    }
-                    pw.close();
-                    sdf.close();
-
                     sampleTree.repaint();
                 }
             }
@@ -394,6 +370,113 @@ public class IQCValidator extends JFrame
         }
     }
 
+
+    void dumpAnnotations () throws IOException {
+        TreeMap<String, Estimator.Result> sorted = 
+            new TreeMap<String, Estimator.Result>
+            (new Comparator<String>() {
+                    public int compare (String s1, String s2) {
+                        Estimator.Result r1 = annotatedResults.get(s1);
+                        Estimator.Result r2 = annotatedResults.get(s2);
+                        return r1.compareTo(r2);
+                    }
+                });
+        sorted.putAll(annotatedResults);
+        
+        PrintWriter pw = new PrintWriter
+            (new FileWriter ("iqc-annotated-results.csv"));
+        pw.println("Sample,Score,t1/2");
+        PrintWriter sdf = new PrintWriter
+            (new FileWriter ("iqc-annotated-results.sdf"));
+        for (Map.Entry<String, Estimator.Result> me
+                 : sorted.entrySet()) {
+            Estimator.Result r = me.getValue();
+            pw.println(me.getKey()
+                       +","+String.format("%1$.3f",r.getScore())
+                       +","+String.format("%1$.3f",r.getHalflife()));
+            Molecule m = getMol (me.getKey());
+            if (m != null) {
+                m = m.cloneMolecule();
+                m.setProperty("SCORE", String.format("%1$.3f",r.getScore()));
+                m.setProperty("T1/2",String.format("%1$.3f",r.getHalflife()));
+                sdf.print(m.toFormat("sdf"));
+            }
+        }
+        pw.close();
+        sdf.close();
+    }
+
+    void dumpControls () throws IOException {
+        PrintWriter pw =
+            new PrintWriter (new FileWriter ("iqc-control-results.csv"));
+        pw.print("Sample,Formula,MolWt,Hash,Dataset,CLint,t1/2");
+        int[] measures = {0,5,10,15,30,60};
+        for (int i = 0; i < measures.length; ++i)
+            pw.print(",T"+measures[i]);
+        pw.println();
+        Set<String> hashes = new HashSet<String>();
+        for (Map.Entry<String, List<Estimator.Result>> me
+                 : controlResults.entrySet()) {
+            for (Estimator.Result r : me.getValue()) {
+                Molecule mol = getMol(r.getSample().getName());
+                if (mol != null) {
+                    String h = mol.getProperty("HASH");
+                    pw.print(r.getSample().getName()
+                             +","+mol.getFormula()
+                             +","+mol.getMass()
+                             +","+h
+                             +","+me.getKey()
+                             +","+String.format("%1$.2f",r.getCLint())
+                             +","+String.format("%1$.2f",r.getHalflife()));
+                    for (int i = 0; i < measures.length; ++i) {
+                        Measure m = r.getMeasures()[i];
+                        pw.print(","+String.format("%1.5f",m.getResponse()));
+                    }
+                    pw.println();
+                    hashes.add(h);
+                }
+                else {
+                    logger.warning("Can't retrieve molecule for "
+                                   +r.getSample().getName());
+                }
+            }
+        }
+        
+        for (Estimator.Result r : allAnnotatedResults) {
+            Molecule mol = getMol(r.getSample().getName());
+            if (mol != null) {
+                String h = mol.getProperty("HASH");
+                if (hashes.contains(h)) {
+                    pw.print(r.getSample().getName()
+                             +","+mol.getFormula()
+                             +","+mol.getMass()
+                             +","+h
+                             +","
+                             +","+String.format("%1$.2f",r.getCLint())
+                             +","+String.format("%1$.2f",r.getHalflife()));
+                    for (int i = 0; i < measures.length; ++i) {
+                        Measure m = r.getMeasures()[i];
+                        pw.print(","+String.format("%1.5f",m.getResponse()));
+                    }
+                    pw.println();
+                }
+            }
+            else {
+                logger.warning("Can't retrieve molecule for \""
+                               +r.getSample().getName()+"\"");
+            }
+        }
+        pw.close();
+    }
+
+    void dumpSamples () throws IOException {
+        PrintStream ps = new PrintStream
+            (new FileOutputStream  ("samples.txt"));
+        for (String s : samples) {
+            ps.println(s);
+        }
+        ps.close();
+    }
 
     class UploadFileWorker extends SwingWorker<Throwable, Void> {
         File file;
@@ -408,7 +491,7 @@ public class IQCValidator extends JFrame
             try {
                 HttpClient client = new DefaultHttpClient();
                 HttpPost post = new HttpPost
-                    ("http://tripod.nih.gov/servlet/iqc-web/datasets/");
+                    (URL_BASE+"/iqc-web/datasets/");
 
                 FileBody uploadFilePart = new FileBody (file);
                 MultipartEntity reqEntity = new MultipartEntity();
@@ -475,8 +558,7 @@ public class IQCValidator extends JFrame
         @Override
         protected Throwable doInBackground () {
             try {
-                URL url = new URL
-                    ("http://tripod.nih.gov/servlet/iqc-web/datasets/");
+                URL url = new URL (URL_BASE+"/iqc-web/datasets/");
                 BufferedReader br = new BufferedReader 
                     (new InputStreamReader (url.openStream()));
                 for (String name; (name = br.readLine()) != null; ) {
@@ -512,7 +594,7 @@ public class IQCValidator extends JFrame
         JMenuItem createMenuItem (String name) throws Exception {
             logger.info("## loading "+name+"...");
             URL url = new URL
-                ("http://tripod.nih.gov/servlet/iqc-web/datasets/"+name);
+                (URL_BASE+"/iqc-web/datasets/"+name.replaceAll(" ", "%20"));
 
             boolean correction = 
                 name.equals("SP118414_20130816_CYP34A_Stab_Data_Final.txt")
@@ -530,9 +612,20 @@ public class IQCValidator extends JFrame
                     new LoadSavedResults (name, root).execute();
                     item.putClientProperty("samples", root);
                 }
+                else if (ext.equals(".csv") || ext.equals(".CSV")) {
+                    item = new JMenuItem (name);
+                    item.addActionListener(loadAction);
+                    DefaultMutableTreeNode root = loadSampleTreeCsv
+                        (url.openStream());
+                    new LoadSavedResults (name, root).execute();
+                    item.putClientProperty("samples", root);
+                }
                 else if (ext.equals(".sdf")) {
                     LyChIStandardizer lychi = new LyChIStandardizer ();
                     MolImporter mi = new MolImporter (url.openStream());
+                    /*
+                    PrintStream ps = new PrintStream
+                    (new FileOutputStream ("samples-lychi.sdf"));*/
                     for (Molecule m; (m = mi.read()) != null; ) {
                         String n = m.getName();
                         pos = n.indexOf('-');
@@ -540,12 +633,16 @@ public class IQCValidator extends JFrame
                             n = n.substring(0, pos);
                             m.setName(n);
                         }
+                        /*
                         Molecule clone = m.cloneMolecule();
                         lychi.standardize(clone);
                         String[] hash = lychi.hashKeyArray(clone);
                         m.setProperty("HASH", hash[2]);
+                        ps.print(m.toFormat("sdf"));
+                        */
                         molDb.put(n, m);
                     }
+                    //ps.close();
                     logger.info("loaded "+molDb.size()
                                 +" structures from "+name);
                 }
@@ -558,6 +655,7 @@ public class IQCValidator extends JFrame
             try {
                 Throwable t = get ();
                 if (t != null) {
+                    t.printStackTrace();
                     JOptionPane.showMessageDialog
                         (IQCValidator.this, t.getMessage(), 
                          "ERROR", JOptionPane.ERROR_MESSAGE);
@@ -587,10 +685,23 @@ public class IQCValidator extends JFrame
 
         @Override
         protected Throwable doInBackground () {
+            /*
             try {
-                URL url = new URL
-                    ("http://tripod.nih.gov/servlet/iqc-web/annotation/"
-                     +dataset);
+                System.out.println("### "+dataset+" ###");
+                for (Map.Entry<Estimator.Result, Boolean> me : 
+                         savedResults.entrySet()) {
+                    Estimator.Result r = me.getKey();
+                    System.out.println(r.getId()+","+me.getValue());
+                }
+            }
+            catch (Exception ex) {
+                ex.printStackTrace();
+            }
+            */
+            
+            try {
+                URL url = new URL (URL_BASE+"/iqc-web/annotation/"
+                                   +dataset.replaceAll(" ", "%20"));
                 URLConnection con = url.openConnection();
                 con.setDoOutput(true);
                 con.setDoInput(true);
@@ -599,7 +710,7 @@ public class IQCValidator extends JFrame
                 for (Map.Entry<Estimator.Result, Boolean> me : 
                          savedResults.entrySet()) {
                     Estimator.Result r = me.getKey();
-                    ps.println(r.getId()+"|"+me.getValue());
+                    ps.println(r.getId()+"|"+me.getValue()+"|"+curator);
                 }
                 
                 BufferedReader br = new BufferedReader
@@ -943,6 +1054,7 @@ public class IQCValidator extends JFrame
     private boolean saveDirty = false;
     private Map<Estimator.Result, Boolean> savedResults = 
         new ConcurrentHashMap<Estimator.Result, Boolean>();
+    private String curator = "anonymous";
 
     private Map<String, Molecule> molDb = 
         new ConcurrentHashMap<String, Molecule>();
@@ -990,6 +1102,13 @@ public class IQCValidator extends JFrame
         top.add(split);
         getContentPane().add(top);
         pack ();
+
+        try {
+            curator = System.getProperty("user.name");
+        }
+        catch (Exception ex) {
+            ex.printStackTrace();
+        }
     }
 
     protected JComponent createSamplePane () {
@@ -1212,9 +1331,52 @@ public class IQCValidator extends JFrame
         item.addActionListener(this);
 
         menu.addSeparator();
+        JMenu dump = new JMenu ("Dump");
+        menu.add(dump);
+        item = dump.add(new JMenuItem ("Annotations"));
+        item.addActionListener(new ActionListener () {
+                public void actionPerformed (ActionEvent e) {
+                    logger.info(annotatedResults.size()
+                                +" total annotated NCGC samples!");
+                    try {
+                        dumpAnnotations ();
+                    }
+                    catch (Exception ex) {
+                        ex.printStackTrace();
+                    }
+                }
+            });
+        item = dump.add(new JMenuItem ("Controls"));
+        item.addActionListener(new ActionListener () {
+                public void actionPerformed (ActionEvent e) {
+                    logger.info(controlResults.size()
+                                +" total control samples!");
+                    try {
+                        dumpControls ();
+                    }
+                    catch (Exception ex) {
+                        ex.printStackTrace();
+                    }
+                    
+                }
+            });
+        item = dump.add(new JMenuItem ("Samples"));
+        item.addActionListener(new ActionListener () {
+                public void actionPerformed (ActionEvent e) {
+                    try {
+                        dumpSamples ();
+                    }
+                    catch (Exception ex) {
+                        ex.printStackTrace();
+                    }
+                    
+                }
+            });
+
+        menu.addSeparator();
         item = menu.add(new JMenuItem ("Quit"));
         item.addActionListener(this);
-
+        
         /*
         menu = menubar.add(new JMenu ("Options"));
         JMenu submenu = new JMenu ("Corrections");
@@ -1799,85 +1961,6 @@ public class IQCValidator extends JFrame
     }
 
     protected void quit () {
-        try {
-            PrintWriter pw =
-                new PrintWriter (new FileWriter ("iqc-controls.csv"));
-            pw.print("Sample,Formula,MolWt,Hash,Dataset,CLint,t1/2");
-            int[] measures = {0,5,10,15,30,60};
-            for (int i = 0; i < measures.length; ++i)
-                pw.print(",T"+measures[i]);
-            pw.println();
-            Set<String> hashes = new HashSet<String>();
-            for (Map.Entry<String, List<Estimator.Result>> me
-                     : controlResults.entrySet()) {
-                for (Estimator.Result r : me.getValue()) {
-                    Molecule mol = getMol(r.getSample().getName());
-                    if (mol != null) {
-                        String h = mol.getProperty("HASH");
-                        pw.print(r.getSample().getName()
-                                 +","+mol.getFormula()
-                                 +","+mol.getMass()
-                                 +","+h
-                                 +","+me.getKey()
-                                 +","+String.format("%1$.2f",r.getCLint())
-                                 +","+String.format("%1$.2f",r.getHalflife()));
-                        for (int i = 0; i < measures.length; ++i) {
-                            Measure m = r.getMeasures()[i];
-                            pw.print(","+String.format("%1.5f",m.getResponse()));
-                        }
-                        pw.println();
-                        hashes.add(h);
-                    }
-                    else {
-                        logger.warning("Can't retrieve molecule for "
-                                       +r.getSample().getName());
-                    }
-                }
-            }
-
-            for (Estimator.Result r : allAnnotatedResults) {
-                Molecule mol = getMol(r.getSample().getName());
-                if (mol != null) {
-                    String h = mol.getProperty("HASH");
-                    if (hashes.contains(h)) {
-                        pw.print(r.getSample().getName()
-                                 +","+mol.getFormula()
-                                 +","+mol.getMass()
-                                 +","+h
-                                 +","
-                                 +","+String.format("%1$.2f",r.getCLint())
-                                 +","+String.format("%1$.2f",r.getHalflife()));
-                        for (int i = 0; i < measures.length; ++i) {
-                            Measure m = r.getMeasures()[i];
-                            pw.print(","+String.format("%1.5f",m.getResponse()));
-                        }
-                        pw.println();
-                    }
-                }
-                else {
-                    logger.warning("Can't retrieve molecule for \""
-                                   +r.getSample().getName()+"\"");
-                }
-            }
-            pw.close();
-        }
-        catch (Exception ex) {
-            ex.printStackTrace();
-        }
-        
-        try {
-            PrintStream ps = new PrintStream
-                (new FileOutputStream  ("samples.txt"));
-            for (String s : samples) {
-                ps.println(s);
-            }
-            ps.close();
-        }
-        catch (IOException ex) {
-            ex.printStackTrace();
-        }
-
-
         if (confirmedSave ()) 
             System.exit(0);
     }
