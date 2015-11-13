@@ -71,8 +71,15 @@
      </signjar>
   </target>
 
+  <target name="signlibs2">
+     <signjar alias="QHTS" keystore="../tripod/etc/ncats-keystore.bin"
+               storepass="NCATS9800">
+            <fileset dir="signedlibs" includes="lychi-v20150421.jar"/>
+     </signjar>
+  </target>
+  
   <target name="deploy" depends="dist">
-     <signjar alias="ncats" keystore="../tripod/etc/ncats-keystore-2015.bin"
+     <signjar alias="QHTS" keystore="../tripod/etc/ncats-keystore.bin"
                  storepass="NCATS9800">
         <fileset dir="${dist}" includes="${jar}"/>
      </signjar>
@@ -101,8 +108,10 @@
   <target name="validator" depends="compile">
      <echo message="=== Simple test "/>
      <java classname="tripod.iqc.validator.IQCValidator" maxmemory="1024m"
-            classpathref="compile.classpath" fork="true">
-        <arg value="data/SP118414_20130816_CYP34A_Stab_Data_Final.txt"/>
+           classpathref="compile.classpath" fork="true">
+       <!--
+           <arg value="data/SP118414_20130816_CYP34A_Stab_Data_Final.txt"/>
+       -->
      </java>
   </target>
 
