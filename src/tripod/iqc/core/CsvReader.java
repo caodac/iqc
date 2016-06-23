@@ -50,12 +50,13 @@ Sample,T0,T0-S,T5,T5-S,T10,T10-S,T15,T15-S,T30,T30-S,T60,T60-S
         Sample sampl = null;
         if (line != null) {
             ++lines;
-            String[] toks = line.split(",");
+            //String[] toks = line.split(",");
+            String[] toks = tokenizer (line, ',');
             if (toks.length != header.length) {
                 logger.warning(lines+": invalid number of tokens "+toks.length
                                +"; expecting "+header.length);
             }
-            else {
+            else if (toks[0] != null) {
                 String sample = toks[0];
                 int repl = 0;
                 int pos = sample.lastIndexOf('-');
@@ -82,7 +83,7 @@ Sample,T0,T0-S,T5,T5-S,T10,T10-S,T15,T15-S,T30,T30-S,T60,T60-S
                                      +"expecting T"+TIMES[i]+" but got "
                                      +header[j]+"!");
                             }
-                            else {
+                            else if (toks[j] != null && toks[j+1] != null) {
                                 Measure m = new Measure (repl);
                                 m.setName(toks[0]);
                                 m.setTime((double)TIMES[i], TimeUnit.MINUTES);
@@ -93,14 +94,53 @@ Sample,T0,T0-S,T5,T5-S,T10,T10-S,T15,T15-S,T30,T30-S,T60,T60-S
                             }
                         }
                         catch (NumberFormatException ex) {
-                            logger.warning(lines+": bogus number: "+line);
+                            logger.warning(lines+": bogus number: "+line+"; either \""+toks[j]+"\" or \""+toks[j+1]+"\" is bogus!");
                         }
                     }
                 }
-                logger.info(sample+": "+sampl.size()+" measurement(s)");
+                //logger.info(sample+": "+sampl.size()+" measurement(s)");
             }
         }
         return sampl;
+    }
+
+    static String[] tokenizer (String line, char delim) {
+        List<String> toks = new ArrayList<String>();
+
+        int len = line.length(), parity = 0;
+        StringBuilder curtok = new StringBuilder ();
+        for (int i = 0; i < len; ++i) {
+            char ch = line.charAt(i);
+            if (ch == '"') {
+                parity ^= 1;
+            }
+            if (ch == delim) {
+                if (parity == 0) {
+                    String tok = null;
+                    if (curtok.length() > 0) {
+                        tok = curtok.toString();
+                    }
+                    toks.add(tok);
+                    curtok.setLength(0);
+                }
+                else {
+                    curtok.append(ch);
+                }
+            }
+            else if (ch != '"') {
+                curtok.append(ch);
+            }
+        }
+
+        if (curtok.length() > 0) {
+            toks.add(curtok.toString());
+        }
+        // if the line ends with the delimiter, then append an empty token
+        else if (line.charAt(line.length()-1) == delim)
+            toks.add(null); 
+
+
+        return toks.toArray(new String[0]);
     }
 
     public static void main (String[] argv) throws Exception {

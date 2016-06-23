@@ -17,7 +17,8 @@ public class IQCAnnotationServlet extends HttpServlet {
 
     static {
         try {
-            Class.forName("oracle.jdbc.driver.OracleDriver");
+            //Class.forName("oracle.jdbc.driver.OracleDriver");
+            Class.forName("com.mysql.jdbc.Driver");
         }
         catch (Exception ex) {
             ex.printStackTrace();
@@ -75,15 +76,18 @@ public class IQCAnnotationServlet extends HttpServlet {
         throws ServletException, IOException {
         PrintWriter pw = res.getWriter();
 
-        String[] args = getArgs (req);
-        if (args == null || args.length < 1) {
+        //String[] args = getArgs (req);
+        String info = req.getPathInfo();
+        if (info == null || info.length() == 0) {
             pw.println("** Error: You don't have permission to POST here!");
             return;
         }
+        String dataset = info.substring(1);
 
         String addr = req.getHeader("X-Real-IP");
         if (addr == null)
             addr = req.getRemoteAddr();
+        logger.info(addr+": dataset="+dataset);
 
         Connection con = null;
         try {
@@ -100,7 +104,7 @@ public class IQCAnnotationServlet extends HttpServlet {
                 logger.info(addr+":"+lines+":"+fields.length+":"+line);
                 if (fields.length == 3) {
                     try {
-                        pstm.setString(1, args[1]); // dataset
+                        pstm.setString(1, dataset); // dataset
                         pstm.setString(2, fields[0]); // sample
                         boolean save = Boolean.parseBoolean(fields[1]);
                         pstm.setInt(3, save ? 1 : 0);
@@ -112,13 +116,13 @@ public class IQCAnnotationServlet extends HttpServlet {
                     }
                     catch (Exception ex) {
                         logger.log(Level.SEVERE, 
-                                   lines+": Can't process input: "+line);
+                                   lines+": Can't process input: "+line, ex);
                     }
                 }
             }
             br.close();
             logger.info(addr+": "+rows+" row(s) inserted!");
-            pw.println(args[1]+" "+rows);
+            pw.println(dataset+" "+rows);
         }
         catch (SQLException ex) {
             ex.printStackTrace(pw);
@@ -136,8 +140,9 @@ public class IQCAnnotationServlet extends HttpServlet {
         throws ServletException, IOException {
         PrintWriter pw = res.getWriter();
 
-        String[] args = getArgs (req);
-        if (args == null || args.length < 1 || !checkCredential (args[1])) {
+        //String[] args = getArgs (req);
+        String info = req.getPathInfo();
+        if (info == null || info.length() == 0) {
             pw.println("** Error: You don't have permission to DELETE here!");
             return;
         }
@@ -186,16 +191,17 @@ public class IQCAnnotationServlet extends HttpServlet {
         throws ServletException, IOException {
         PrintWriter pw = res.getWriter();
 
-        String[] args = getArgs (req);
+        //String[] args = getArgs (req);
+        String info = req.getPathInfo();
         Connection con = null;
         try {
             con = getConnection ();
-            if (args != null && args.length > 1) {
+            if (info != null && info.length() > 0) {
                 PreparedStatement pstm = con.prepareStatement
                     ("select * from iqc_validator_annotation "
                      +"where dataset = ? "
                      +"order by sample, anno_id desc");
-                pstm.setString(1, args[1]);
+                pstm.setString(1, info.substring(1));
                 //pstm.setString(2, "148.168.40.121");
                 ResultSet rset = pstm.executeQuery();
                 String sample = "";
