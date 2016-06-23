@@ -52,7 +52,13 @@ public class IQCValidator extends JFrame
     static final Logger logger = 
         Logger.getLogger(IQCValidator.class.getName());
 
-    static final String URL_BASE = "https://tripod.nih.gov/servlet";
+    static final String[] ENZYMES = {
+        "3A4",
+        "2C9"
+    };
+    
+    static final String URL_BASE = System.getProperty
+        ("iqc-web2", "https://tripod.nih.gov");
     //static final String URL_BASE = "http://localhost:8080";
 
     enum CLUnit {
@@ -269,7 +275,7 @@ public class IQCValidator extends JFrame
         protected Throwable doInBackground () {
             try {
                 URL url = new URL 
-                    (URL_BASE+"/iqc-web/annotation/"
+                    (URL_BASE+"/iqc-web2/annotation/"
                      +(dataset != null ? dataset.replaceAll(" ","%20") : ""));
 
                 logger.info("Retrieving saved results for \""+dataset+"\"...");
@@ -277,16 +283,24 @@ public class IQCValidator extends JFrame
                     (new InputStreamReader (url.openStream()));
 
                 int count = 0;
+                Set<String> seen = new HashSet<String>();
                 for (String line; (line = br.readLine()) != null; ++count) {
                     String[] toks = line.split("\t");
                     if (toks.length >= 3) {
-                        if (!saves.containsKey(toks[0])) {
-                            saves.put(toks[0], Integer.parseInt(toks[1]) == 1);
+                        int pos = toks[0].indexOf('[');
+                        String id = pos > 0
+                            ? toks[0].substring(0, pos) : toks[0];
+
+                        if (!seen.contains(id)) {
+                            boolean set = Integer.parseInt(toks[1]) == 1;
+                            saves.put(toks[0], set);
                             if (toks.length > 3)
                                 curators.put(toks[0], toks[3]);
+                            if (set)
+                                seen.add(id);
                         }
                     }
-                    //System.out.println(line);
+                    System.out.println(line);
                 }
                 br.close();
 
@@ -311,7 +325,7 @@ public class IQCValidator extends JFrame
                 else {
                     // now iterate through all the results and identify
                     // which ones are saved
-                    //savedResults.clear(); // clear the current results
+                    savedResults.clear(); // clear the current results
                     
                     for (Enumeration en = root.depthFirstEnumeration();
                          en.hasMoreElements(); ) {
@@ -481,8 +495,12 @@ public class IQCValidator extends JFrame
     class UploadFileWorker extends SwingWorker<Throwable, Void> {
         File file;
         String status;
+        String dataset;
 
-        UploadFileWorker (File file) {
+        UploadFileWorker (String dataset, File file) {
+            if (dataset == null)
+                throw new IllegalArgumentException ("No dataset specified!");
+            this.dataset = dataset;
             this.file = file;
         }
 
@@ -491,9 +509,10 @@ public class IQCValidator extends JFrame
             try {
                 HttpClient client = new DefaultHttpClient();
                 HttpPost post = new HttpPost
-                    (URL_BASE+"/iqc-web/datasets/");
+                    (URL_BASE+"/iqc-web2/datasets/");
 
-                FileBody uploadFilePart = new FileBody (file);
+                FileBody uploadFilePart = new FileBody
+                    (file, dataset+"/"+file.getName(), "plain/text", "utf8");
                 MultipartEntity reqEntity = new MultipartEntity();
                 reqEntity.addPart("upload-file", uploadFilePart);
                 post.setEntity(reqEntity);
@@ -536,8 +555,8 @@ public class IQCValidator extends JFrame
                     new LoadDatasets().execute();
 
                     JOptionPane.showMessageDialog
-                        (IQCValidator.this, "Successfully upload dataset\n"
-                         +file+"\n"+status, 
+                        (IQCValidator.this, "Successfully uploaded dataset\n"
+                         +file+"!\n"+status, 
                          "INFO", JOptionPane.INFORMATION_MESSAGE);
                 }
             }
@@ -545,6 +564,64 @@ public class IQCValidator extends JFrame
                 JOptionPane.showMessageDialog
                     (IQCValidator.this, ex.getMessage(), 
                      "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    class ConvertFileWorker extends SwingWorker<Throwable, Void> {
+        File file;
+        File out;
+
+        ConvertFileWorker (File file, File out) {
+            this.file = file;
+            this.out = out;
+            
+            JOptionPane.showMessageDialog
+                (IQCValidator.this,
+                 "The conversion is running in the background; you may\n"
+                 +"safely close this dialog. When the conversion finishes,\n"
+                 +"you will be notified!",
+                 "INFO", JOptionPane.INFORMATION_MESSAGE);
+        }
+
+        @Override
+        protected Throwable doInBackground () {
+            logger.info("## writing output file... "+out);
+            try {
+                ZipFile zf = new ZipFile (file);
+                IqcToTxt txt = new IqcToTxt (zf);
+                FileOutputStream fos = new FileOutputStream (out);
+                txt.write(fos);
+                fos.close();
+            }
+            catch (Exception ex) {
+                logger.log(Level.SEVERE,
+                           "Can't perform conversion for file '"+file+"'!", ex);
+                return ex;
+            }
+            return null;
+        }
+
+        @Override
+        protected void done () {
+            try {
+                Throwable t = get ();
+                if (t != null) {
+                    JOptionPane.showMessageDialog
+                        (IQCValidator.this, t.getMessage(), 
+                         "Error", JOptionPane.ERROR_MESSAGE);
+                }
+                else {
+                    JOptionPane.showMessageDialog
+                        (IQCValidator.this, "Successfully converted "
+                         +file+"!\nto file \""+out+"\"!", 
+                         "INFO", JOptionPane.INFORMATION_MESSAGE);
+                }
+            }
+            catch (Exception ex) {
+                JOptionPane.showMessageDialog
+                    (IQCValidator.this, ex.getMessage(), 
+                     "Error", JOptionPane.ERROR_MESSAGE);               
             }
         }
     }
@@ -558,9 +635,17 @@ public class IQCValidator extends JFrame
         @Override
         protected Throwable doInBackground () {
             try {
-                URL url = new URL (URL_BASE+"/iqc-web/datasets/");
+                URL url = new URL (URL_BASE+"/iqc-web2/datasets/");
                 BufferedReader br = new BufferedReader 
                     (new InputStreamReader (url.openStream()));
+                
+                Map<String, JMenu> menu = new HashMap<String, JMenu>();
+                for (String enz : ENZYMES) {
+                    JMenu m = new JMenu (enz);
+                    menu.put(enz, m);
+                    items.add(m);
+                }
+                
                 for (String name; (name = br.readLine()) != null; ) {
                     String[] tokens = name.split("\t");
                     int count = 0;
@@ -572,16 +657,36 @@ public class IQCValidator extends JFrame
                         catch (NumberFormatException ex) {
                         }
                     }
-                    JMenuItem item = createMenuItem (name);
+
+                    String full = name;
+                    int pos = name.indexOf('/');
+                    JMenu parent = null;
+                    if (pos > 0) {
+                        String sub = name.substring(0, pos);
+                        parent = menu.get(sub);
+                        if (parent == null) {
+                            menu.put(sub, parent = new JMenu (sub));
+                            items.add(parent);
+                        }
+                        name = name.substring(pos+1);
+                    }
+
+                    JMenuItem item = createMenuItem (full, name);
                     if (item != null) {
+                        item.putClientProperty("fullname", full);
                         if (count == 0)
                             item.setIcon(STAR_EMPTY);
                         else if (count < 10)
                             item.setIcon(STAR_HALF);
                         else
                             item.setIcon(STAR_FULL);
-                    
-                        items.add(item);
+
+                        if (parent != null) {
+                            parent.add(item);
+                        }
+                        else {
+                            items.add(item);
+                        }
                     }
                 }
             }
@@ -591,14 +696,15 @@ public class IQCValidator extends JFrame
             return null;
         }
 
-        JMenuItem createMenuItem (String name) throws Exception {
+        JMenuItem createMenuItem (String full, String name) throws Exception {
             logger.info("## loading "+name+"...");
             URL url = new URL
-                (URL_BASE+"/iqc-web/datasets/"+name.replaceAll(" ", "%20"));
+                (URL_BASE+"/iqc-web2/datasets/"+full.replaceAll(" ", "%20"));
 
             boolean correction = 
-                name.equals("SP118414_20130816_CYP34A_Stab_Data_Final.txt")
-                || name.equals("SP118414_20130830_CYP3A4_Stability_Data.txt");
+                name.indexOf("SP118414_20130816_CYP34A_Stab_Data_Final.txt")
+                >= 0 || name.indexOf
+                ("SP118414_20130830_CYP3A4_Stability_Data.txt") >= 0;
             
             JMenuItem item = null;
             int pos = name.lastIndexOf('.');
@@ -609,7 +715,8 @@ public class IQCValidator extends JFrame
                     item.addActionListener(loadAction);
                     DefaultMutableTreeNode root = loadSampleTreeTxt 
                         (correction, url.openStream());
-                    new LoadSavedResults (name, root).execute();
+                    logger.info(name+": "+root.getChildCount()+" sample(s) read!");                 
+                    //new LoadSavedResults (name, root).execute();
                     item.putClientProperty("samples", root);
                 }
                 else if (ext.equals(".csv") || ext.equals(".CSV")) {
@@ -617,7 +724,9 @@ public class IQCValidator extends JFrame
                     item.addActionListener(loadAction);
                     DefaultMutableTreeNode root = loadSampleTreeCsv
                         (url.openStream());
-                    new LoadSavedResults (name, root).execute();
+                    logger.info("########### "+name+": "+root.getChildCount()
+                                +" sample(s) read #############");
+                    //new LoadSavedResults (name, root).execute();
                     item.putClientProperty("samples", root);
                 }
                 else if (ext.equals(".sdf")) {
@@ -700,7 +809,7 @@ public class IQCValidator extends JFrame
             */
             
             try {
-                URL url = new URL (URL_BASE+"/iqc-web/annotation/"
+                URL url = new URL (URL_BASE+"/iqc-web2/annotation/"
                                    +dataset.replaceAll(" ", "%20"));
                 URLConnection con = url.openConnection();
                 con.setDoOutput(true);
@@ -1019,7 +1128,8 @@ public class IQCValidator extends JFrame
                     SampleData data = (SampleData)obj;
                     Icon icon = STATUS_GRAY;
                     for (Estimator.Result r : data.getResults()) {
-                        if (null != savedResults.get(r)) {
+                        Boolean b = savedResults.get(r);
+                        if (null != b && b) {
                             icon = STATUS_GREEN;
                             break;
                         }
@@ -1066,7 +1176,9 @@ public class IQCValidator extends JFrame
                     (DefaultMutableTreeNode) item
                     .getClientProperty("samples");
                 if (confirmedSave ()) {
-                    setSampleTreeModel (item.getText(), root);
+                    //setSampleTreeModel (item.getText(), root);
+                    setSampleTreeModel ((String)item.getClientProperty
+                                        ("fullname"), root);
                 }
             }
         };
@@ -1312,9 +1424,14 @@ public class IQCValidator extends JFrame
         // now load the datasets
         new LoadDatasets().execute();
 
-        item = menu.add(new JMenuItem ("Upload"));
-        item.setToolTipText("Upload dataset to server");
-        item.addActionListener(this);
+        JMenu uploadMenu = new JMenu ("Upload");
+        uploadMenu.setToolTipText("Upload dataset to server");  
+        menu.add(uploadMenu);
+        for (String enz : ENZYMES) {
+            uploadMenu.add(item = new JMenuItem (enz));
+            item.setActionCommand("Upload/"+enz);
+            item.addActionListener(this);
+        }
         menu.addSeparator();
 
         JMenu importMenu = new JMenu ("Import");
@@ -1327,7 +1444,11 @@ public class IQCValidator extends JFrame
         item.addActionListener(this);
 
         item = menu.add(new JMenuItem ("Export"));
-        item.setToolTipText("Export saved results to data file");
+        item.setToolTipText("Export data file");
+        item.addActionListener(this);
+
+        item = menu.add(new JMenuItem ("Convert"));
+        item.setToolTipText("Convert zip file to csv");
         item.addActionListener(this);
 
         menu.addSeparator();
@@ -1398,7 +1519,7 @@ public class IQCValidator extends JFrame
         ResultTableModel model = (ResultTableModel)resultTab.getModel();
         model.clear();
         clearPlots ();
-        //new LoadSavedResults (name, root).execute();
+        new LoadSavedResults (name, root).execute();
         sampleTree.setModel(new DefaultTreeModel (root));
         updateCLint (root);
     }
@@ -1494,11 +1615,16 @@ public class IQCValidator extends JFrame
         else if (cmd.equalsIgnoreCase("export")) {
             export ();
         }
+        else if (cmd.equalsIgnoreCase("convert")) {
+            convert ();
+        }
         else if (cmd.equalsIgnoreCase("quit")) {
             quit ();
         }
-        else if (cmd.equalsIgnoreCase("upload")) {
-            upload ();
+        else if (cmd.startsWith("Upload/")) {
+            String enz = cmd.substring(7);
+            logger.info("Uploading \""+enz+"\"");
+            upload (enz);
         }
         else if (cmd.startsWith("T")) {
         }
@@ -1642,16 +1768,36 @@ public class IQCValidator extends JFrame
         }
     }
     
-    protected void upload () {
+    protected void upload (String enz) {
         FileNameExtensionFilter filter = new FileNameExtensionFilter
-            ("TXT file", "txt", "text");
+            ("Text data file", "txt", "text", "csv");
         chooser.setFileFilter(filter);
-        chooser.setDialogTitle("Upload txt data file...");
+        chooser.setDialogTitle("Upload data file...");
         int ans = chooser.showOpenDialog(this);
         if (JFileChooser.APPROVE_OPTION == ans) {
             File file = chooser.getSelectedFile();
-            new UploadFileWorker (file).execute();
+            new UploadFileWorker (enz, file).execute();
         }
+    }
+
+    protected void convert () {
+        FileNameExtensionFilter filter = new FileNameExtensionFilter
+            ("ZIP file", "zip");
+        chooser.setFileFilter(filter);
+        chooser.setDialogTitle("Convert data file...");
+        int ans = chooser.showOpenDialog(this);
+        if (JFileChooser.APPROVE_OPTION == ans) {
+            File file = chooser.getSelectedFile();
+            String name = file.getName();
+            int pos = name.lastIndexOf('.');
+            if (pos > 0) {
+                name = name.substring(0, pos);
+            }
+            name += ".csv";
+            
+            new ConvertFileWorker
+                (file, new File (file.getParentFile(), name)).execute();
+        }       
     }
 
     protected void loadSamples (DefaultListModel model, 
@@ -1789,6 +1935,8 @@ public class IQCValidator extends JFrame
 
     protected void export () {
         Collection<Estimator.Result> saves = getSavedResults ();
+        logger.info("Exporting "+saves.size()+" saved results...");
+        
         if (saves.isEmpty()) {
             JOptionPane.showMessageDialog
                 (this, "There is nothing to export!",
@@ -1796,22 +1944,29 @@ public class IQCValidator extends JFrame
             return;
         }
 
-        FileNameExtensionFilter filter = new FileNameExtensionFilter
-            //("CSV file", "csv");
-            ("SDF file", "sdf", "sd");
-        chooser.setFileFilter(filter);
+        chooser.resetChoosableFileFilters();
+        chooser.addChoosableFileFilter
+            (new FileNameExtensionFilter("CSV file", "csv"));
+        chooser.addChoosableFileFilter
+            (new FileNameExtensionFilter("SDF file", "sdf", "sd"));
         chooser.setDialogTitle("Save results...");
         int ans = chooser.showSaveDialog(this);
         if (JFileChooser.APPROVE_OPTION == ans) {
             File file = chooser.getSelectedFile();
-
+            FileNameExtensionFilter filter =
+                (FileNameExtensionFilter)chooser.getFileFilter();
+            
             int index = file.getName().lastIndexOf('.');
             if (index < 0) {
-                file = new File (file.getParent(), file.getName()+".sdf");
+                file = new File (file.getParent(), file.getName()+"."
+                                 +filter.getExtensions()[0]);
+                                 //+".sdf");
             }
             else {
                 file = new File (file.getParent(), 
-                                 file.getName().substring(0, index)+".sdf");
+                                 file.getName().substring(0, index)
+                                 +filter.getExtensions()[0]);
+                                 //+".sdf");
             }
 
             if (file.exists()) {
@@ -1823,7 +1978,11 @@ public class IQCValidator extends JFrame
             }
             
             try {
-                exportSDF (file, saves);
+                String ext = filter.getExtensions()[0];
+                if ("csv".equalsIgnoreCase(ext))
+                    exportCSV (file, saves);
+                else 
+                    exportSDF (file, saves);
                 saveDirty = false;
             }
             catch (IOException ex) {

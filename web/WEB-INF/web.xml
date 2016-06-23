@@ -4,13 +4,20 @@
          xsi:schemaLocation="http://java.sun.com/xml/ns/javaee http://java.sun.com/xml/ns/javaee/web-app_2_5.xsd">
 
     <context-param>
-        <param-name>jdbc-iqc</param-name>
-        <param-value>jdbc:oracle:thin:iqc/ncatsiqc$12@lederman.ncats.nih.gov:1521:probedb</param-value>
+      <param-name>jdbc-iqc</param-name>
+      <!--param-value>jdbc:mysql://localhost/iqc?user=root</param-value-->
+      <param-value>jdbc:mysql://pauli.ncats.nih.gov/iqc?user=iqc&amp;password=ncatsiqc$12</param-value>
+      <!--
+          <param-value>jdbc:oracle:thin:iqc/ncatsiqc$12@lederman.ncats.nih.gov:1521:probedb</param-value>
+      -->
     </context-param>
 
     <context-param>
-        <param-name>dataset-dir</param-name>
-        <param-value>/ncats/prod/ncatsweb/iqc/datasets</param-value>
+      <param-name>dataset-dir</param-name>
+       <param-value>../iqc</param-value>
+      <!--
+          <param-value>/ncats/prod/ncatsweb/iqc/datasets</param-value>
+      -->
     </context-param>
 
     <servlet>
