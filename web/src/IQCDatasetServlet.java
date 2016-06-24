@@ -242,6 +242,14 @@ public class IQCDatasetServlet extends HttpServlet {
     static List<File> getFilesRecursive (File file) {
         List<File> files = new ArrayList<File>();
         getFilesRecursive (files, file);
+        Collections.sort(files, new Comparator<File> () {
+                public int compare (File f1, File f2) {
+                    long d = f2.lastModified() - f1.lastModified();
+                    if (d < 0l) return -1;
+                    if (d > 0l) return 1;
+                    return f1.compareTo(f2);
+                }
+            });
         return files;
     }
 
