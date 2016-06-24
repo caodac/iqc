@@ -7,7 +7,7 @@
   <property name="classes" value="${web}/classes"/>
   <property name="weblib" value="${web}/lib"/>
   <property name="src" value="src"/>
-  <property name="war" value="iqc-web.war"/>
+  <property name="war" value="iqc-web2.war"/>
 
   <path id="compile.classpath">
     <fileset dir="${lib}">
