@@ -58,7 +58,7 @@ public class IQCValidator extends JFrame
     };
     
     static final String URL_BASE = System.getProperty
-        ("iqc-web2", "https://tripod.nih.gov");
+        ("iqc-web2", "http://tripod.nih.gov");
     //static final String URL_BASE = "http://localhost:8080";
 
     enum CLUnit {
