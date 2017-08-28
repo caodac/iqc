@@ -109,7 +109,7 @@
      <echo message="=== Simple test "/>
      <java classname="tripod.iqc.validator.IQCValidator" maxmemory="1024m"
            classpathref="compile.classpath" fork="true">
-       <sysproperty key="iqc-web" value="http://localhost:8080"/>
+       <!--sysproperty key="iqc-web2" value="http://localhost:8080"/-->
        <!--
            <arg value="data/SP118414_20130816_CYP34A_Stab_Data_Final.txt"/>
        -->

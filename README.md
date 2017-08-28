@@ -13,6 +13,5 @@ Pranav Shah, R. Scott Obach, Dac-Trung Nguyen, Edward Kerns, Amy Q
 Wang, Alexey Zakharov, Anton Simeonov, Cornelis E.C.A Hop, John McKew,
 and Xin Xu. An Automated High-Throughput Metabolic Stability Assay
 Using an Integrated High-Resolution Accurate Mass Method and Automated
-Data Analysis Software Drug Metab. Dispos. 2016:
-dmd.116.072017v2-dmd.116.072017.
+Data Analysis Software. Drug Metab. Dispos. 2016: dmd.116.072017v2-dmd.116.072017.
 ```

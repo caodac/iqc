@@ -8,6 +8,7 @@ import java.util.concurrent.*;
 import java.util.logging.Logger;
 import java.util.logging.Level;
 import java.text.DecimalFormat;
+import javax.net.ssl.*;
 
 import javax.swing.*;
 import javax.swing.table.*;
@@ -54,11 +55,12 @@ public class IQCValidator extends JFrame
 
     static final String[] ENZYMES = {
         "3A4",
-        "2C9"
+        "2C9",
+        "2D6"
     };
     
     static final String URL_BASE = System.getProperty
-        ("iqc-web2", "http://tripod.nih.gov");
+        ("iqc-web2", "https://tripod.nih.gov");
     //static final String URL_BASE = "http://localhost:8080";
 
     enum CLUnit {
@@ -247,6 +249,7 @@ public class IQCValidator extends JFrame
             try {
                 Throwable t = get ();
                 if (t != null) {
+                    t.printStackTrace();
                     JOptionPane.showMessageDialog
                         (IQCValidator.this, t.getMessage(), 
                          "Error", JOptionPane.ERROR_MESSAGE);
@@ -274,13 +277,14 @@ public class IQCValidator extends JFrame
         @Override
         protected Throwable doInBackground () {
             try {
-                URL url = new URL 
-                    (URL_BASE+"/iqc-web2/annotation/"
+                InputStream is = openStream
+                    ("/iqc-web2/annotation/"
                      +(dataset != null ? dataset.replaceAll(" ","%20") : ""));
 
                 logger.info("Retrieving saved results for \""+dataset+"\"...");
+                
                 BufferedReader br = new BufferedReader 
-                    (new InputStreamReader (url.openStream()));
+                    (new InputStreamReader (is));
 
                 int count = 0;
                 Set<String> seen = new HashSet<String>();
@@ -318,6 +322,7 @@ public class IQCValidator extends JFrame
             try {
                 Throwable t = get ();
                 if (t != null) {
+                    t.printStackTrace();
                     JOptionPane.showMessageDialog
                         (IQCValidator.this, t.getMessage(), 
                          "Error", JOptionPane.ERROR_MESSAGE);
@@ -341,6 +346,7 @@ public class IQCValidator extends JFrame
                                     if (data.getName().startsWith("NCGC")) {
                                         if (!r.getScore().isNaN()
                                             && !r.getScore().isInfinite()
+                                            && r.getHalflife() != null
                                             && r.getHalflife() > 0) {
                                             Estimator.Result rr = 
                                                 annotatedResults.get
@@ -377,6 +383,7 @@ public class IQCValidator extends JFrame
                 }
             }
             catch (Exception ex) {
+                ex.printStackTrace();
                 JOptionPane.showMessageDialog
                     (IQCValidator.this, ex.getMessage(), 
                      "Error", JOptionPane.ERROR_MESSAGE);
@@ -384,6 +391,17 @@ public class IQCValidator extends JFrame
         }
     }
 
+    InputStream openStream (String path)  throws Exception {
+        return getURLConnection(path).getInputStream();
+    }
+
+    URLConnection getURLConnection (String path) throws Exception {
+        URL url = new URL (URL_BASE + path);
+        HttpsURLConnection conn =
+            (HttpsURLConnection)url.openConnection();
+        conn.setSSLSocketFactory(new DummySSLSocketFactory ());
+        return conn;
+    }
 
     void dumpAnnotations () throws IOException {
         TreeMap<String, Estimator.Result> sorted = 
@@ -546,6 +564,7 @@ public class IQCValidator extends JFrame
             try {
                 Throwable t = get ();
                 if (t != null) {
+                    t.printStackTrace();
                     JOptionPane.showMessageDialog
                         (IQCValidator.this, t.getMessage(), 
                          "Error", JOptionPane.ERROR_MESSAGE);
@@ -561,6 +580,7 @@ public class IQCValidator extends JFrame
                 }
             }
             catch (Exception ex) {
+                ex.printStackTrace();
                 JOptionPane.showMessageDialog
                     (IQCValidator.this, ex.getMessage(), 
                      "Error", JOptionPane.ERROR_MESSAGE);
@@ -607,6 +627,7 @@ public class IQCValidator extends JFrame
             try {
                 Throwable t = get ();
                 if (t != null) {
+                    t.printStackTrace();
                     JOptionPane.showMessageDialog
                         (IQCValidator.this, t.getMessage(), 
                          "Error", JOptionPane.ERROR_MESSAGE);
@@ -619,6 +640,7 @@ public class IQCValidator extends JFrame
                 }
             }
             catch (Exception ex) {
+                ex.printStackTrace();
                 JOptionPane.showMessageDialog
                     (IQCValidator.this, ex.getMessage(), 
                      "Error", JOptionPane.ERROR_MESSAGE);               
@@ -635,9 +657,9 @@ public class IQCValidator extends JFrame
         @Override
         protected Throwable doInBackground () {
             try {
-                URL url = new URL (URL_BASE+"/iqc-web2/datasets/");
                 BufferedReader br = new BufferedReader 
-                    (new InputStreamReader (url.openStream()));
+                    (new InputStreamReader
+                     (openStream ("/iqc-web2/datasets/")));
                 
                 Map<String, JMenu> menu = new HashMap<String, JMenu>();
                 for (String enz : ENZYMES) {
@@ -698,8 +720,8 @@ public class IQCValidator extends JFrame
 
         JMenuItem createMenuItem (String full, String name) throws Exception {
             logger.info("## loading "+name+"...");
-            URL url = new URL
-                (URL_BASE+"/iqc-web2/datasets/"+full.replaceAll(" ", "%20"));
+            InputStream is = openStream
+                ("/iqc-web2/datasets/"+full.replaceAll(" ", "%20"));
 
             boolean correction = 
                 name.indexOf("SP118414_20130816_CYP34A_Stab_Data_Final.txt")
@@ -714,7 +736,7 @@ public class IQCValidator extends JFrame
                     item = new JMenuItem (name);
                     item.addActionListener(loadAction);
                     DefaultMutableTreeNode root = loadSampleTreeTxt 
-                        (correction, url.openStream());
+                        (correction, is);
                     logger.info(name+": "+root.getChildCount()+" sample(s) read!");                 
                     //new LoadSavedResults (name, root).execute();
                     item.putClientProperty("samples", root);
@@ -722,8 +744,7 @@ public class IQCValidator extends JFrame
                 else if (ext.equals(".csv") || ext.equals(".CSV")) {
                     item = new JMenuItem (name);
                     item.addActionListener(loadAction);
-                    DefaultMutableTreeNode root = loadSampleTreeCsv
-                        (url.openStream());
+                    DefaultMutableTreeNode root = loadSampleTreeCsv (is);
                     logger.info("########### "+name+": "+root.getChildCount()
                                 +" sample(s) read #############");
                     //new LoadSavedResults (name, root).execute();
@@ -731,7 +752,7 @@ public class IQCValidator extends JFrame
                 }
                 else if (ext.equals(".sdf")) {
                     LyChIStandardizer lychi = new LyChIStandardizer ();
-                    MolImporter mi = new MolImporter (url.openStream());
+                    MolImporter mi = new MolImporter (is);
                     /*
                     PrintStream ps = new PrintStream
                     (new FileOutputStream ("samples-lychi.sdf"));*/
@@ -777,6 +798,7 @@ public class IQCValidator extends JFrame
                 }
             }
             catch (Exception ex) {
+                ex.printStackTrace();
                 JOptionPane.showMessageDialog
                     (IQCValidator.this, ex.getMessage(), 
                      "Error", JOptionPane.ERROR_MESSAGE);
@@ -809,11 +831,10 @@ public class IQCValidator extends JFrame
             */
             
             try {
-                URL url = new URL (URL_BASE+"/iqc-web2/annotation/"
-                                   +dataset.replaceAll(" ", "%20"));
-                URLConnection con = url.openConnection();
-                con.setDoOutput(true);
+                URLConnection con  = getURLConnection
+                    ("/iqc-web2/annotation/"+dataset.replaceAll(" ", "%20"));
                 con.setDoInput(true);
+                con.setDoOutput(true);
 
                 PrintStream ps = new PrintStream (con.getOutputStream());
                 for (Map.Entry<Estimator.Result, Boolean> me : 
@@ -837,6 +858,7 @@ public class IQCValidator extends JFrame
             try {
                 Throwable t = get ();
                 if (t != null) {
+                    t.printStackTrace();
                     JOptionPane.showMessageDialog
                         (IQCValidator.this, t.getMessage(), 
                          "Error", JOptionPane.ERROR_MESSAGE);
@@ -858,6 +880,7 @@ public class IQCValidator extends JFrame
                 }
             }
             catch (Exception ex) {
+                ex.printStackTrace();
                 JOptionPane.showMessageDialog
                     (IQCValidator.this, ex.getMessage(), 
                      "Error", JOptionPane.ERROR_MESSAGE);
@@ -1191,6 +1214,7 @@ public class IQCValidator extends JFrame
                 loadSamples (false, new FileInputStream (argv[0]));
             }
             catch (IOException ex) {
+                ex.printStackTrace();
                 JOptionPane.showMessageDialog
                     (this, ex.getMessage(), 
                      "Error", JOptionPane.ERROR_MESSAGE);
@@ -1986,6 +2010,7 @@ public class IQCValidator extends JFrame
                 saveDirty = false;
             }
             catch (IOException ex) {
+                ex.printStackTrace();
                 JOptionPane.showMessageDialog
                     (this, "Unable to save results to file "+file,
                      "ERROR", JOptionPane.ERROR_MESSAGE);
