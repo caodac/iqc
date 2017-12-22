@@ -35,9 +35,7 @@
     <javac destdir="${build}"
            deprecation="on"
            debug="on"
-           includeantruntime="no"
-           target="1.5"
-           source="1.5">
+           includeantruntime="no">
       <src path="src"/>
       <classpath refid="compile.classpath"/>
     </javac>

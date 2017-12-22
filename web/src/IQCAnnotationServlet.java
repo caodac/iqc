@@ -197,28 +197,46 @@ public class IQCAnnotationServlet extends HttpServlet {
         try {
             con = getConnection ();
             if (info != null && info.length() > 0) {
-                PreparedStatement pstm = con.prepareStatement
-                    ("select * from iqc_validator_annotation "
-                     +"where dataset = ? "
-                     +"order by sample, anno_id desc");
-                pstm.setString(1, info.substring(1));
+                PreparedStatement pstm;
+                int pos = info.indexOf('*');
+                if (pos > 0) {
+                    pstm = con.prepareStatement
+                        ("select * from iqc_validator_annotation "
+                         +"where dataset like '"+info.substring(1, pos)+"%' "
+                         +"order by anno_id desc, sample");
+                }
+                else {
+                    pstm = con.prepareStatement
+                        ("select * from iqc_validator_annotation "
+                         +"where dataset = ? "
+                         +"order by anno_id desc, sample");
+                    pstm.setString(1, info.substring(1));
+                }
+                
                 //pstm.setString(2, "148.168.40.121");
                 ResultSet rset = pstm.executeQuery();
-                String sample = "";
-                String curator = "";
+                Map<String, Set<String>> datasets = new HashMap<>();
                 while (rset.next()) {
                     String c = rset.getString("curator");
-                    if (c == null)
-                        c = "";
                     String s = rset.getString("sample");
-                    if (!sample.equals(s) || !curator.equals(c)) {
-                        pw.println(s+"\t"+
-                                   rset.getInt("save")+"\t"+
-                                   rset.getLong("anno_id")+"\t"+
-                                   c);
+                    String d = rset.getString("dataset");
+
+                    Set<String> samples = datasets.get(d);
+                    if (samples == null)
+                        datasets.put(d, samples = new HashSet<>());
+                    
+                    String t = s.substring(0, s.indexOf('['));
+                    if (!samples.contains(t)) {
+                        pw.print(s+"\t"+
+                                 rset.getInt("save")+"\t"+
+                                 rset.getLong("anno_id")+"\t"+
+                                 c);
+                        if (pos > 0)
+                            pw.print("\t"+d);
+                        
+                        pw.println();
+                        samples.add(t);
                     }
-                    sample = s;
-                    curator = c;
                 }
                 rset.close();
                 pstm.close();

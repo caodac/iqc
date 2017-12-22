@@ -8,6 +8,7 @@ import java.util.concurrent.*;
 import java.util.logging.Logger;
 import java.util.logging.Level;
 import java.text.DecimalFormat;
+import java.text.SimpleDateFormat;
 import javax.net.ssl.*;
 
 import javax.swing.*;
@@ -60,7 +61,7 @@ public class IQCValidator extends JFrame
     };
     
     static final String URL_BASE = System.getProperty
-        ("iqc-web2", "https://tripod.nih.gov");
+      ("iqc-web2", "https://tripod.nih.gov");
     //static final String URL_BASE = "http://localhost:8080";
 
     enum CLUnit {
@@ -263,6 +264,153 @@ public class IQCValidator extends JFrame
         }
     }
 
+    class ExportEnzyme extends SwingWorker<Throwable, Void> {
+        final String enzyme;
+        final JMenuItem item;
+        final Map<String, DefaultMutableTreeNode> datasets = new HashMap<>();
+        
+        ExportEnzyme (JMenuItem item) {
+            this.item = item;
+            //enzyme = (String) item.getClientProperty("enzyme");
+            JMenu menu = (JMenu) item.getClientProperty("parent");
+            for (int i = 0; i < menu.getItemCount(); ++i) {
+                JMenuItem mi = menu.getItem(i);
+                if (mi != null && mi != item) {
+                    String name = mi.getText();
+                    DefaultMutableTreeNode root = (DefaultMutableTreeNode)
+                        mi.getClientProperty("samples");
+                    datasets.put(name, root);
+                    logger.info(name+": "+root.getChildCount()+" sample(s)");
+                }
+            }
+            enzyme = menu.getText();
+        }
+
+        @Override
+        protected Throwable doInBackground () {
+            logger.info(Thread.currentThread().getName()
+                        +": Exporting enzyme \""+enzyme+"\"...");
+            try {
+                InputStream is = openStream
+                    ("/iqc-web2/annotation/"+enzyme+"/*");
+                BufferedReader br = new BufferedReader 
+                    (new InputStreamReader (is));
+
+                SimpleDateFormat date = new SimpleDateFormat ("yyyyMMdd");
+                String csv = "iqc-"+enzyme+"-results-"
+                    +date.format(new Date ())+".csv";
+                PrintWriter pw = new PrintWriter (new FileWriter (csv));
+                pw.print("Sample,t1/2,Dataset");
+                int[] measures = {0,5,10,15,30,60};
+                for (int i = 0; i < measures.length; ++i)
+                    pw.print(",T"+measures[i]);
+                pw.println();
+                
+                int count = 0, cnt = 0;
+                for (String line; (line = br.readLine()) != null; ++count) {
+                    logger.info(line);
+                    String[] toks = line.split("\t");
+                    if (toks.length > 4) {
+                        int anno = Integer.parseInt(toks[1]);
+                        if (anno == 1) {
+                            String ds = toks[4].substring
+                                (enzyme.length()+1); // remove enzyme prefix
+                            DefaultMutableTreeNode root = datasets.get(ds);
+                            if (root != null) {
+                                Estimator.Result r = getAnnotatedResult
+                                    (root, toks[0]);
+                                if (r != null) {
+                                    //logger.info(">>> "+r);
+                                    pw.print
+                                        (r.getSample().getName()+","
+                                         +String.format("%1$1.3f",
+                                                        r.getHalflife())+","
+                                         +ds);
+                                    Measure[] m = r.getMeasures();
+                                    int i = 0;
+                                    for (; i < m.length; ++i) {
+                                        pw.print(","+String.format
+                                                 ("%1.5f", m[i].getResponse()));
+                                    }
+                                    for (; i < measures.length; ++i)
+                                        pw.print(",");
+                                    pw.println();
+                                    ++cnt;
+                                }
+                                else {
+                                    logger.warning
+                                        ("Can't locate annotated sample "
+                                         +toks[0]+" in dataset "+toks[4]);
+                                }
+                            }
+                            else {
+                                logger.warning("Unknown dataset: "+ds);
+                            }
+                        }
+                    }
+                    else {
+                        logger.warning("Unknown line: expecting at least "
+                                       +"5 fields but instead got "
+                                       +toks.length);
+                    }
+                }
+                br.close();
+                pw.close();
+                logger.info("Enzyme "+enzyme+" has "+count+" samples "
+                            +"spanning "+datasets.size()+" dataset(s)!");
+                logger.info("!!! "+cnt+"/"+count+" for enzyme "+enzyme
+                            +" exported to \""+csv+"\"!!!");
+            }
+            catch (Exception ex) {
+                ex.printStackTrace();
+                return ex;
+            }
+            return null;
+        }
+
+        @Override
+        protected void done () {
+            try {
+                Throwable t = get ();
+                if (t != null) {
+                    t.printStackTrace();
+                    JOptionPane.showMessageDialog
+                        (IQCValidator.this, t.getMessage(), 
+                         "Error", JOptionPane.ERROR_MESSAGE);
+                }
+                else {
+                    
+                }
+            }
+            catch (Exception ex) {
+                ex.printStackTrace();
+                JOptionPane.showMessageDialog
+                    (IQCValidator.this, ex.getMessage(), 
+                     "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+
+        Estimator.Result getAnnotatedResult (DefaultMutableTreeNode root,
+                                             String sample) {
+            // terrible!!!
+            for (Enumeration en = root.depthFirstEnumeration();
+                 en.hasMoreElements(); ) {
+                DefaultMutableTreeNode node = 
+                    (DefaultMutableTreeNode)en.nextElement();
+                Object obj = node.getUserObject();
+                if (obj != null && obj instanceof SampleData) {
+                    SampleData data = (SampleData)obj;
+                    for (Estimator.Result r : data.getResults()) {
+                        if (sample.equals(r.getId()))
+                            return r;
+                    }
+                }
+            }
+            
+            return null;
+        }
+    }
+    
     class LoadSavedResults extends SwingWorker<Throwable, Void> {
         String dataset;
         DefaultMutableTreeNode root;
@@ -397,9 +545,11 @@ public class IQCValidator extends JFrame
 
     URLConnection getURLConnection (String path) throws Exception {
         URL url = new URL (URL_BASE + path);
-        HttpsURLConnection conn =
-            (HttpsURLConnection)url.openConnection();
-        conn.setSSLSocketFactory(new DummySSLSocketFactory ());
+        URLConnection conn = url.openConnection();
+        if (url.getProtocol().equalsIgnoreCase("https")) {
+            ((HttpsURLConnection)conn).setSSLSocketFactory
+                (new DummySSLSocketFactory ());
+        }
         return conn;
     }
 
@@ -664,6 +814,18 @@ public class IQCValidator extends JFrame
                 Map<String, JMenu> menu = new HashMap<String, JMenu>();
                 for (String enz : ENZYMES) {
                     JMenu m = new JMenu (enz);
+                    JMenuItem export = new JMenuItem ("Export Enzyme "+enz);
+                    export.putClientProperty("enzyme", enz);
+                    export.addActionListener(new ActionListener () {
+                            public void actionPerformed (ActionEvent e) {
+                                JMenuItem item = (JMenuItem)e.getSource();
+                                new ExportEnzyme(item).execute();
+                            }
+                        });
+                    m.add(export);
+                    m.addSeparator();
+                    export.putClientProperty("parent", m);
+                    
                     menu.put(enz, m);
                     items.add(m);
                 }
@@ -690,6 +852,7 @@ public class IQCValidator extends JFrame
                             menu.put(sub, parent = new JMenu (sub));
                             items.add(parent);
                         }
+                        
                         name = name.substring(pos+1);
                     }
 
@@ -1977,20 +2140,22 @@ public class IQCValidator extends JFrame
         int ans = chooser.showSaveDialog(this);
         if (JFileChooser.APPROVE_OPTION == ans) {
             File file = chooser.getSelectedFile();
-            FileNameExtensionFilter filter =
-                (FileNameExtensionFilter)chooser.getFileFilter();
             
-            int index = file.getName().lastIndexOf('.');
-            if (index < 0) {
-                file = new File (file.getParent(), file.getName()+"."
-                                 +filter.getExtensions()[0]);
-                                 //+".sdf");
+            javax.swing.filechooser.FileFilter filter = chooser.getFileFilter();
+            String ext = null;
+            int index = file.getName().lastIndexOf('.');            
+            if (filter instanceof FileNameExtensionFilter) {
+                ext = ((FileNameExtensionFilter)filter).getExtensions()[0];
+                if (index < 0) {
+                    file = new File (file.getParent(), file.getName()+"."+ext);
+                }
+                else {
+                    file = new File (file.getParent(), 
+                                     file.getName().substring(0, index)+"."+ext);
+                }
             }
-            else {
-                file = new File (file.getParent(), 
-                                 file.getName().substring(0, index)
-                                 +filter.getExtensions()[0]);
-                                 //+".sdf");
+            else if (index > 0) {
+                ext = file.getName().substring(index);
             }
 
             if (file.exists()) {
@@ -2002,7 +2167,6 @@ public class IQCValidator extends JFrame
             }
             
             try {
-                String ext = filter.getExtensions()[0];
                 if ("csv".equalsIgnoreCase(ext))
                     exportCSV (file, saves);
                 else 

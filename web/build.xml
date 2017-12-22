@@ -39,8 +39,8 @@
            deprecation="on"
            debug="on"
            includeantruntime="no"
-           target="1.5"
-           source="1.5">
+	   source="1.7"
+	   target="1.7">
       <classpath refid="compile.classpath"/>
     </javac>
   </target>
