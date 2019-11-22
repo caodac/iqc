@@ -105,7 +105,7 @@
 
   <target name="validator" depends="compile">
      <echo message="=== Simple test "/>
-     <java classname="tripod.iqc.validator.IQCValidator" maxmemory="1024m"
+     <java classname="tripod.iqc.validator.IQCValidator" maxmemory="4096m"
            classpathref="compile.classpath" fork="true">
        <!--sysproperty key="iqc-web2" value="http://localhost:8080"/-->
        <!--

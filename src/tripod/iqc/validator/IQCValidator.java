@@ -5,6 +5,7 @@ import java.net.*;
 import java.util.*;
 import java.util.zip.*;
 import java.util.concurrent.*;
+import java.util.concurrent.locks.*;
 import java.util.logging.Logger;
 import java.util.logging.Level;
 import java.text.DecimalFormat;
@@ -14,10 +15,7 @@ import javax.net.ssl.*;
 import javax.swing.*;
 import javax.swing.table.*;
 import javax.swing.tree.*;
-import javax.swing.event.ListSelectionListener;
-import javax.swing.event.ListSelectionEvent;
-import javax.swing.event.TreeSelectionEvent;
-import javax.swing.event.TreeSelectionListener;
+import javax.swing.event.*;
 import java.awt.Color;
 import java.awt.event.*;
 import java.awt.BorderLayout;
@@ -57,11 +55,12 @@ public class IQCValidator extends JFrame
     static final String[] ENZYMES = {
         "3A4",
         "2C9",
-        "2D6"
+        "2D6",
+        "3A7"
     };
     
     static final String URL_BASE = System.getProperty
-      ("iqc-web2", "https://tripod.nih.gov");
+        ("iqc-web2", "https://tripod.nih.gov");
     //static final String URL_BASE = "http://localhost:8080";
 
     enum CLUnit {
@@ -446,8 +445,10 @@ public class IQCValidator extends JFrame
                         if (!seen.contains(id)) {
                             boolean set = Integer.parseInt(toks[1]) == 1;
                             saves.put(toks[0], set);
-                            if (toks.length > 3)
-                                curators.put(toks[0], toks[3]);
+                            if (toks.length > 3) {
+                                //curators.put(toks[0], toks[3]);
+                                setAnnotator (root, id, toks[3]);
+                            }
                             if (set)
                                 seen.add(id);
                         }
@@ -465,6 +466,23 @@ public class IQCValidator extends JFrame
             return null;
         }
 
+        void setAnnotator (DefaultMutableTreeNode node,
+                           String id, String value) {
+            if (node instanceof SampleTreeNode) {
+                SampleTreeNode s = (SampleTreeNode)node;
+                if (((SampleData)s.getUserObject()).getName().equals(id)) {
+                    s.setAnnotator(value);
+                    return;
+                }
+            }
+            
+            for (Enumeration en = node.children(); en.hasMoreElements();) {
+                DefaultMutableTreeNode child =
+                    (DefaultMutableTreeNode) en.nextElement();
+                setAnnotator (child, id, value);
+            }
+        }
+
         @Override
         protected void done () {
             try {
@@ -476,58 +494,16 @@ public class IQCValidator extends JFrame
                          "Error", JOptionPane.ERROR_MESSAGE);
                 }
                 else {
-                    // now iterate through all the results and identify
-                    // which ones are saved
-                    savedResults.clear(); // clear the current results
-                    
-                    for (Enumeration en = root.depthFirstEnumeration();
-                         en.hasMoreElements(); ) {
-                        DefaultMutableTreeNode node = 
-                            (DefaultMutableTreeNode)en.nextElement();
-                        Object obj = node.getUserObject();
-                        if (obj != null && obj instanceof SampleData) {
-                            SampleData data = (SampleData)obj;
-                            for (Estimator.Result r : data.getResults()) {
-                                Boolean b = saves.get(r.getId());
-                                if (b != null) {
-                                    savedResults.put(r, b);
-                                    if (data.getName().startsWith("NCGC")) {
-                                        if (!r.getScore().isNaN()
-                                            && !r.getScore().isInfinite()
-                                            && r.getHalflife() != null
-                                            && r.getHalflife() > 0) {
-                                            Estimator.Result rr = 
-                                                annotatedResults.get
-                                                (data.getName());
-                                            if (rr == null 
-                                                || (r.getScore() 
-                                                    > rr.getScore())) {
-                                                annotatedResults.put
-                                                    (data.getName(), r);
-                                                annotatedData.put
-                                                    (data.getName(), data);
-                                            }
-                                            allAnnotatedResults.add(r);
-                                        }
-                                    }
-                                    else {
-                                        List<Estimator.Result> results =
-                                            controlResults.get(dataset);
-                                        if (results == null) {
-                                            results = new ArrayList<Estimator.Result>();
-                                            controlResults.put
-                                                (dataset, results);
-                                        }
-                                        results.add(r);
-                                    }
-                                }
-                            }
-                        }
-                    }
                     logger.info(dataset+": "+savedResults.size()
                                 +" saved results retrieved!");
-
-                    sampleTree.repaint();
+                    lock.lock();
+                    try {
+                        loadSavedResults ();
+                        sampleTree.repaint();                        
+                    }
+                    finally {
+                        lock.unlock();
+                    }
                 }
             }
             catch (Exception ex) {
@@ -537,6 +513,55 @@ public class IQCValidator extends JFrame
                      "Error", JOptionPane.ERROR_MESSAGE);
             }
         }
+
+        void loadSavedResults () {
+            // now iterate through all the results and identify
+            // which ones are saved
+            savedResults.clear(); // clear the current results
+                    
+            for (Enumeration en = root.depthFirstEnumeration();
+                 en.hasMoreElements(); ) {
+                DefaultMutableTreeNode node = 
+                    (DefaultMutableTreeNode)en.nextElement();
+                Object obj = node.getUserObject();
+                if (obj != null && obj instanceof SampleData) {
+                    SampleData data = (SampleData)obj;
+                    for (Estimator.Result r : data.getResults()) {
+                        Boolean b = saves.get(r.getId());
+                        if (b != null) {
+                            savedResults.put(r, b);
+                            if (data.getName().startsWith("NCGC")) {
+                                if (!r.getScore().isNaN()
+                                    && !r.getScore().isInfinite()
+                                    && r.getHalflife() != null
+                                    && r.getHalflife() > 0) {
+                                    Estimator.Result rr = 
+                                        annotatedResults.get(data.getName());
+                                    if (rr == null 
+                                        || (r.getScore() > rr.getScore())) {
+                                        annotatedResults.put
+                                            (data.getName(), r);
+                                        annotatedData.put
+                                            (data.getName(), data);
+                                    }
+                                    allAnnotatedResults.add(r);
+                                }
+                            }
+                            else {
+                                List<Estimator.Result> results =
+                                    controlResults.get(dataset);
+                                if (results == null) {
+                                    results = new ArrayList<Estimator.Result>();
+                                    controlResults.put
+                                        (dataset, results);
+                                }
+                                results.add(r);
+                            }
+                        }
+                    }
+                }
+            }
+        } // loadSavedResults()
     }
 
     InputStream openStream (String path)  throws Exception {
@@ -992,7 +1017,8 @@ public class IQCValidator extends JFrame
                 ex.printStackTrace();
             }
             */
-            
+
+            lock.lock();
             try {
                 URLConnection con  = getURLConnection
                     ("/iqc-web2/annotation/"+dataset.replaceAll(" ", "%20"));
@@ -1003,7 +1029,9 @@ public class IQCValidator extends JFrame
                 for (Map.Entry<Estimator.Result, Boolean> me : 
                          savedResults.entrySet()) {
                     Estimator.Result r = me.getKey();
-                    ps.println(r.getId()+"|"+me.getValue()+"|"+curator);
+                    String line = r.getId()+"|"+me.getValue()+"|"+curator;
+                    ps.println(line);
+                    logger.info(line);
                 }
                 
                 BufferedReader br = new BufferedReader
@@ -1013,6 +1041,10 @@ public class IQCValidator extends JFrame
             catch (Exception ex) {
                 return ex;
             }
+            finally {
+                lock.unlock();
+            }
+            
             return null;
         }
 
@@ -1053,7 +1085,13 @@ public class IQCValidator extends JFrame
 
     class SampleTreeNode extends DefaultMutableTreeNode {
         Estimator estimator = new LeastSquaresEstimator ();
+        String annotator;
 
+        // clone
+        SampleTreeNode (SampleTreeNode n) {
+            super (n.getUserObject());
+        }
+        
         SampleTreeNode (Sample sample) {
             // calculate fit for parent sample
             SampleData data = new SampleData 
@@ -1082,6 +1120,11 @@ public class IQCValidator extends JFrame
         public SampleData getData () { 
             return (SampleData) getUserObject (); 
         }
+
+        public void setAnnotator (String annotator) {
+            this.annotator = annotator;
+        }
+        public String getAnnotator () { return annotator; }
     }
 
     class ResultTableModel extends AbstractTableModel {
@@ -1132,10 +1175,16 @@ public class IQCValidator extends JFrame
             FitModel model = result.getModel();
 
             switch (col) {
-            case 0: {
-                Boolean save = savedResults.get(result);
-                return save != null && save;
-            }
+            case 0:
+                lock.lock();
+                try {
+                    Boolean save = savedResults.get(result);
+                    return save != null && save;
+                }
+                finally {
+                    lock.unlock();
+                }
+                
             case 1: return result.getRank();
             case 2: return result.getScore();
             case 3: 
@@ -1172,15 +1221,35 @@ public class IQCValidator extends JFrame
         }
 
         public void setValueAt (Object value, int row, int col) {
-            if (col == 0) {
-                logger.info("Row "+row+" save? "+value);
-                Estimator.Result result = results.get(row);
-                savedResults.put(result, (Boolean)value);
-                saveDirty = true;
+            lock.lock();
+            try {
+                if (col == 0) {
+                    Estimator.Result result = results.get(row);
+                    // remove all results with the same sample
+                    Set<Estimator.Result> remove = new HashSet<>();
+                    for (Estimator.Result r : savedResults.keySet()) {
+                        if (r.getSample().getName().equals
+                            (result.getSample().getName())) {
+                            remove.add(r);
+                        }
+                    }
+                    
+                    for (Estimator.Result r : remove)
+                        savedResults.remove(r);
+                    
+                    Boolean old=savedResults.put(result, (Boolean)value);
+                    logger.info("Row "+row+" save? new="+value
+                                +" old="+old+" => "+result.getId());
+                    
+                    saveDirty = true;
+                }
+                else {
+                    throw new IllegalArgumentException
+                        ("Column "+col+" is not editable!");
+                }
             }
-            else {
-                throw new IllegalArgumentException
-                    ("Column "+col+" is not editable!");
+            finally {
+                lock.unlock();
             }
         }
 
@@ -1313,14 +1382,20 @@ public class IQCValidator extends JFrame
                 if (obj instanceof SampleData) {
                     SampleData data = (SampleData)obj;
                     Icon icon = STATUS_GRAY;
-                    for (Estimator.Result r : data.getResults()) {
-                        Boolean b = savedResults.get(r);
-                        if (null != b && b) {
-                            icon = STATUS_GREEN;
-                            break;
+                    lock.lock();
+                    try {
+                        for (Estimator.Result r : data.getResults()) {
+                            Boolean b = savedResults.get(r);
+                            if (null != b && b) {
+                                icon = STATUS_GREEN;
+                                break;
+                            }
                         }
+                        setLeafIcon (icon);
                     }
-                    setLeafIcon (icon);
+                    finally {
+                        lock.unlock();
+                    }
                 }
             }
             return super.getTreeCellRendererComponent
@@ -1346,6 +1421,10 @@ public class IQCValidator extends JFrame
     private JLabel plotHeader;
     private JComboBox unitCb;
     private JMenu datasetMenu;
+    private JCheckBox statusFilterCb;
+    private JTextField searchField;
+
+    private final ReentrantLock lock = new ReentrantLock ();
 
     private boolean saveDirty = false;
     private Map<Estimator.Result, Boolean> savedResults = 
@@ -1422,19 +1501,90 @@ public class IQCValidator extends JFrame
         JSplitPane split = new JSplitPane (JSplitPane.VERTICAL_SPLIT);
         split.setDividerSize(3);
         split.setResizeWeight(.75);
-        split.setTopComponent(new JScrollPane (sampleTree));
+
+        JPanel pane = new JPanel (new BorderLayout ());
+        searchField = new JTextField ();
+        searchField.setToolTipText("Search sample");
+        searchField.addActionListener(new ActionListener () {
+                public void actionPerformed (ActionEvent e) {
+                    filterSearchTerm ();
+                }
+            });
+        
+        statusFilterCb = new JCheckBox (/*STATUS_GRAY*/);
+        statusFilterCb.setToolTipText("Show only unannotated samples");
+        statusFilterCb.setSelected(false);
+        statusFilterCb.addActionListener(new ActionListener () {
+                public void actionPerformed (ActionEvent e) {
+                    filterUnannotated ();
+                }
+            });
+        pane.add(statusFilterCb, BorderLayout.WEST);
+        pane.add(searchField);
+
+        JPanel p = new JPanel (new BorderLayout ());
+        p.add(pane, BorderLayout.NORTH);
+        p.add(new JScrollPane (sampleTree));
+
+        split.setTopComponent(p);
         split.setBottomComponent(createMolPane ());
 
         JTabbedPane tab = new JTabbedPane ();
         tab.addTab("Samples", split);
         //tab.addTab("Stats", createStatsPane ());
 
-        JPanel pane = new JPanel (new BorderLayout ());
+        pane = new JPanel (new BorderLayout ());
         pane.add(tab);
 
         return pane;
     }
 
+    void filterSearchTerm () {
+        String term = searchField.getText();
+        logger.info("searching samples for \""+term+"\"...");
+        DefaultMutableTreeNode root = (DefaultMutableTreeNode)
+            sampleTree.getClientProperty("__root");
+
+        if (root == null) {
+        }
+        else if ("".equals(term)) {
+            sampleTree.setModel(new DefaultTreeModel (root));
+        }
+        else {
+            ArrayList<DefaultMutableTreeNode> matches =
+                new ArrayList<>();
+            search (matches, root, term);
+                        
+            DefaultMutableTreeNode search = new
+                DefaultMutableTreeNode ("search:"+term);
+            for (DefaultMutableTreeNode node : matches)
+                search.add(node);
+            sampleTree.setModel(new DefaultTreeModel (search));
+        }
+    }
+    
+    void filterUnannotated () {
+        logger.info("filter by gray status..."+statusFilterCb.isSelected());
+        DefaultMutableTreeNode root = (DefaultMutableTreeNode)
+            sampleTree.getClientProperty("__root");
+
+        if (root == null) {
+        }
+        else if (statusFilterCb.isSelected()) {
+            Set<DefaultMutableTreeNode> matches = new HashSet<>();
+            unannotated (matches, root);
+                        
+            DefaultMutableTreeNode search = new
+                DefaultMutableTreeNode ("unannotated nodes");
+            for (DefaultMutableTreeNode node : matches)
+                search.add(node);
+            sampleTree.setModel(new DefaultTreeModel (search));
+        }
+        else {
+            sampleTree.setModel(new DefaultTreeModel (root));
+        }
+    }
+    
     protected JComponent createStatsPane () {
         JPanel pane = new JPanel ();
         return pane;
@@ -1708,7 +1858,10 @@ public class IQCValidator extends JFrame
         clearPlots ();
         new LoadSavedResults (name, root).execute();
         sampleTree.setModel(new DefaultTreeModel (root));
+        sampleTree.putClientProperty("__root", root);
         updateCLint (root);
+        searchField.setText(null);
+        filterUnannotated ();
     }
 
     protected void updateCLint () {
@@ -2027,6 +2180,55 @@ public class IQCValidator extends JFrame
         }
     }
 
+    void unannotated (Set<DefaultMutableTreeNode> matches,
+                      DefaultMutableTreeNode node) {
+        if (node instanceof SampleTreeNode) {
+            SampleData s = (SampleData)((SampleTreeNode)node).getUserObject();
+            lock.lock();
+            try {
+                boolean annotated = false;
+                for (Estimator.Result r : s.getResults()) {
+                    Boolean b = savedResults.get(r);
+                    if (null != b && b) {
+                        annotated = true;
+                        break;
+                    }
+                }
+                
+                if (!annotated)
+                    matches.add(new SampleTreeNode ((SampleTreeNode)node));
+            }
+            finally {
+                lock.unlock();
+            }
+        }
+        
+        for (Enumeration en = node.children(); en.hasMoreElements(); ) {
+            DefaultMutableTreeNode child =
+                (DefaultMutableTreeNode)en.nextElement();
+            unannotated (matches, child);
+        }        
+    }
+    
+    void search (java.util.List<DefaultMutableTreeNode> matches,
+                 DefaultMutableTreeNode node, String term) {
+        if (node instanceof SampleTreeNode) {
+            SampleData s = (SampleData)((SampleTreeNode)node).getUserObject();
+            boolean matched = s.getName().indexOf(term) >= 0 ||
+                s.getName().indexOf(term.toLowerCase()) >= 0 ||
+                s.getName().indexOf(term.toUpperCase()) >= 0;
+            if (matched) {
+                matches.add(new SampleTreeNode ((SampleTreeNode)node));
+            }
+        }
+        
+        for (Enumeration en = node.children(); en.hasMoreElements(); ) {
+            DefaultMutableTreeNode child =
+                (DefaultMutableTreeNode)en.nextElement();
+            search (matches, child, term);
+        }
+    }
+
     Set<String> samples = new TreeSet<String>();
     protected DefaultMutableTreeNode loadSampleTreeTxt
         (boolean correction, InputStream is) 
@@ -2089,24 +2291,37 @@ public class IQCValidator extends JFrame
 
     protected int countSaved () {
         int saves = 0;
-        for (Map.Entry<Estimator.Result, Boolean> me : 
-                 savedResults.entrySet()) {
-            Boolean value = me.getValue();
-            if (value != null && value)
-                ++saves;
+        lock.lock();
+        try {
+            for (Map.Entry<Estimator.Result, Boolean> me : 
+                     savedResults.entrySet()) {
+                Boolean value = me.getValue();
+                if (value != null && value)
+                    ++saves;
+            }
+            return saves;
         }
-        return saves;
+        finally {
+            lock.unlock();
+        }
     }
 
     protected Collection<Estimator.Result> getSavedResults () {
-        ArrayList<Estimator.Result> saves = new ArrayList<Estimator.Result>();
-        for (Map.Entry<Estimator.Result, Boolean> me : 
-                 savedResults.entrySet()) {
-            Boolean value = me.getValue();
-            if (value != null && value)
-                saves.add(me.getKey());
+        lock.lock();
+        try {
+            ArrayList<Estimator.Result> saves =
+                new ArrayList<Estimator.Result>();
+            for (Map.Entry<Estimator.Result, Boolean> me : 
+                     savedResults.entrySet()) {
+                Boolean value = me.getValue();
+                if (value != null && value)
+                    saves.add(me.getKey());
+            }
+            return saves;
         }
-        return saves;
+        finally {
+            lock.unlock();
+        }
     }
 
     protected void save () {
